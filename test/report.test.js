@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createHmac} from 'node:crypto';
+import {sale,CARNE} from '../src/core.js';
+import {store} from '../src/store.js';
+const payload=(id,phone='123')=>({payment:{id,status:'paid'},customer:{name:'Comprador Fictício',email:'teste@example.com',mobile_phone:phone},products:[{id:CARNE}]});
+test('telefone inválido é registrado sem envio e com contato para atendimento',()=>{const st=store(':memory:');const r=sale(payload('bad'));assert.equal(r.error,'invalid_phone');st.add(r);assert.equal(st.next(),undefined);const result=st.list({state:'attention'});assert.equal(result.total,1);assert.equal(result.rows[0].email,'teste@example.com');st.resolve('bad',true);assert.equal(st.list({state:'attention'}).total,0);assert.equal(st.list({state:'failed'}).total,1);st.db.close();});
+test('paginação, filtros e callback que chega antes da resposta do envio',()=>{const st=store(':memory:');for(let n=0;n<55;n++)st.add(sale(payload('sale-'+n,'79999990000')));assert.equal(st.list({}).rows.length,50);assert.equal(st.list({page:2}).rows.length,5);assert.equal(st.list({q:'sale-54'}).total,1);const r=st.next();st.status({id:'wamid.early',biz_opaque_callback_data:r.id,status:'failed',errors:[{code:131026}]});st.finish(r,{state:'accepted',mid:'wamid.early'});assert.equal(st.list({q:r.id}).rows.find(x=>x.id===r.id).state,'failed');st.status({id:'wamid.early',status:'sent'});assert.equal(st.list({state:'failed'}).total,1);st.status({id:'wamid.early',status:'delivered'});assert.equal(st.list({state:'delivered'}).total,1);st.db.close();});
+test('HTTP: painel protegido, fila pausada, webhook assinado, resolução manual',async t=>{
+ const dir=mkdtempSync(join(tmpdir(),'delivery-test-'));const secret='w'.repeat(32),admin='a'.repeat(32),appSecret='s'.repeat(32);
+ const child=spawn(process.execPath,['src/server.js'],{cwd:new URL('../',import.meta.url),env:{...process.env,PORT:'0',WIAPY_SECRET:secret,ADMIN_TOKEN:admin,META_APP_SECRET:appSecret,META_VERIFY_TOKEN:'verify-test',DB_PATH:join(dir,'db.sqlite'),DELIVERY_ENABLED:'false',DRY_RUN:'true',META_WABA_ID:'waba-test',META_PHONE_NUMBER_ID:'phone-test'}});
+ t.after(async()=>{child.kill('SIGTERM');await new Promise(resolve=>{if(child.exitCode!==null)resolve();else child.once('exit',resolve);});rmSync(dir,{recursive:true,force:true});});
+ const port=await new Promise((resolve,reject)=>{let buffer='';const timeout=setTimeout(()=>reject(Error('server timeout')),10000);child.stdout.on('data',d=>{buffer+=d;const match=buffer.match(/"port":(\d+)/);if(match){clearTimeout(timeout);resolve(match[1]);}});child.once('error',reject);child.once('exit',()=>{clearTimeout(timeout);reject(Error('server exited'));});});
+ const base='http://127.0.0.1:'+port;const auth='Basic '+Buffer.from('admin:'+admin).toString('base64');
+ assert.equal((await fetch(base+'/admin')).status,401);const page=await fetch(base+'/admin',{headers:{authorization:auth}});assert.equal(page.status,200);assert.equal(page.headers.get('cache-control'),'no-store');assert.match(await page.text(),/Relatório de entregas/);
+ const post=(path,body,headers={})=>fetch(base+path,{method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)});
+ assert.equal((await post('/webhooks/wiapy',payload('one'))).status,401);
+ assert.equal((await post('/webhooks/wiapy',payload('one'),{authorization:secret})).status,200);
+ assert.equal((await (await post('/webhooks/wiapy',payload('one'),{authorization:secret})).json()).duplicate,true);
+ await post('/webhooks/wiapy',payload('two','79999990000'),{authorization:secret});
+ const report=async()=> (await fetch(base+'/admin/deliveries',{headers:{authorization:auth}})).json();const data=await report();assert.equal(data.mode,'paused');assert.equal(data.total,2);assert.equal(data.rows.find(x=>x.id==='two').state,'queued');
+ assert.equal((await post('/admin/resolve',{id:'one',resolved:true},{authorization:auth})).status,403);
+ assert.equal((await post('/admin/resolve',{id:'one',resolved:true},{authorization:auth,'x-admin-action':'resolve'})).status,200);
+ assert.equal((await report()).rows.find(x=>x.id==='one').resolved,1);
+ assert.equal((await fetch(base+'/webhooks/meta?hub.mode=subscribe&hub.verify_token=verify-test&hub.challenge=123')).status,200);
+ const webhook={entry:[{id:'waba-test',changes:[{value:{metadata:{phone_number_id:'phone-test'},statuses:[{id:'wamid.test',biz_opaque_callback_data:'two',status:'delivered'}]}}]}]};
+ assert.equal((await post('/webhooks/meta',webhook)).status,401);const raw=JSON.stringify(webhook);assert.equal((await post('/webhooks/meta',webhook,{'x-hub-signature-256':'sha256='+createHmac('sha256',appSecret).update(raw).digest('hex')})).status,200);
+ // A compra na fila ainda não foi enviada: callback não deve mudar esse pedido.
+ assert.equal((await report()).rows.find(x=>x.id==='two').state,'queued');
+});
