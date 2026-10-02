@@ -27,3 +27,5 @@ test('callback antecipado Evolution é reaplicado e não regride leitura',()=>{
 });
 
 test('teste isolado não entra na fila e repetir ID não reenvia',()=>{const st=store(':memory:');const r={...row,id:'test:example'};assert.equal(st.addTest(r),1);assert.equal(st.next(),undefined);assert.equal(st.addTest(r),0);st.finish({...r,attempts:0},{state:'accepted',mid:'test-mid'});assert.equal(st.list()[0].attempts,1);assert.equal(st.list()[0].state,'accepted');st.db.close();});
+
+test('teste de telefone inválido fica salvo como falha sem entrar na fila',()=>{const st=store(':memory:');st.addTest({...row,id:'test:invalid',phone:'',raw_phone:'123',error:'invalid_phone'});assert.equal(st.next(),undefined);assert.equal(st.list()[0].state,'failed');assert.equal(st.list()[0].attempts,0);st.db.close();});

@@ -33,6 +33,10 @@ test('HTTP: painel protegido, fila pausada, webhook assinado, resolução manual
  assert.equal((await report()).rows.find(x=>x.id==='two').state,'queued');
  assert.equal((await post('/admin/test',{},{authorization:auth})).status,403);
  assert.equal((await post('/admin/test',{kind:'invalid',requestId:'bad'},{authorization:auth,'x-admin-action':'test'})).status,400);
+ const invalidTest={kind:'carne',phone:'123',requestId:'11111111-1111-1111-1111-111111111111'};
+ const badTest=await (await post('/admin/test',invalidTest,{authorization:auth,'x-admin-action':'test'})).json();assert.equal(badTest.error,'invalid_phone');assert.equal(badTest.state,'failed');
+ const saved=(await report()).rows.find(x=>x.id===badTest.id);assert.equal(saved.state,'failed');assert.equal(saved.raw_phone,'123');assert.equal(saved.attempts,0);
+ assert.equal((await (await post('/admin/test',invalidTest,{authorization:auth,'x-admin-action':'test'})).json()).duplicate,true);
  const event={instance:'test',apikey:'fake-key',event:'messages.update',data:{keyId:'unknown',fromMe:true,status:'READ'}};
  assert.equal((await post('/webhooks/evolution',{...event,apikey:'wrong'})).status,401);
  assert.equal((await post('/webhooks/evolution',{...event,instance:'other'})).status,401);

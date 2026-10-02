@@ -42,8 +42,10 @@ const server=http.createServer(async(req,res)=>{try{
  const p=JSON.parse((await body(req)).toString());
  if(!['carne','combo'].includes(p.kind)||typeof p.requestId!=='string'||!/^[-a-f0-9]{36}$/.test(p.requestId))return reply(res,400,{error:'invalid_payload'});
  if(p.kind==='combo'&&!cfg.productsAccessToken)return reply(res,409,{error:'products_token_missing'});
- const r={id:'test:'+p.requestId,phone:phone(p.phone),raw_phone:String(p.phone).slice(0,80),name:'Teste de entrega',email:'',kind:p.kind,attempts:0};
+ let normalized='',phoneError=null;try{normalized=phone(p.phone);}catch{phoneError='invalid_phone';}
+ const r={id:'test:'+p.requestId,phone:normalized,error:phoneError,raw_phone:String(p.phone||'').slice(0,80),name:'Teste de entrega',email:'',kind:p.kind,attempts:0};
  if(!st.addTest(r))return reply(res,200,{duplicate:true,id:r.id});
+ if(r.error)return reply(res,200,{id:r.id,state:'failed',error:r.error});
  const result=await send(r,{...cfg,dry:false});
  if(result.state==='retry')result.state='failed';st.finish(r,result);
  return reply(res,200,{id:r.id,...result});}
