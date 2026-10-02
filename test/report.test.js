@@ -12,7 +12,7 @@ test('telefone inválido é registrado sem envio e com contato para atendimento'
 test('paginação, filtros e callback que chega antes da resposta do envio',()=>{const st=store(':memory:');for(let n=0;n<55;n++)st.add(sale(payload('sale-'+n,'79999990000')));assert.equal(st.list({}).rows.length,50);assert.equal(st.list({page:2}).rows.length,5);assert.equal(st.list({q:'sale-54'}).total,1);const r=st.next();st.status({id:'wamid.early',biz_opaque_callback_data:r.id,status:'failed',errors:[{code:131026}]});st.finish(r,{state:'accepted',mid:'wamid.early'});assert.equal(st.list({q:r.id}).rows.find(x=>x.id===r.id).state,'failed');st.status({id:'wamid.early',status:'sent'});assert.equal(st.list({state:'failed'}).total,1);st.status({id:'wamid.early',status:'delivered'});assert.equal(st.list({state:'delivered'}).total,1);st.db.close();});
 test('HTTP: painel protegido, fila pausada, webhook assinado, resolução manual',async t=>{
  const dir=mkdtempSync(join(tmpdir(),'delivery-test-'));const secret='w'.repeat(32),admin='a'.repeat(32),appSecret='s'.repeat(32);
- const child=spawn(process.execPath,['src/server.js'],{cwd:new URL('../',import.meta.url),env:{...process.env,PORT:'0',WIAPY_SECRET:secret,ADMIN_TOKEN:admin,META_APP_SECRET:appSecret,META_VERIFY_TOKEN:'verify-test',DB_PATH:join(dir,'db.sqlite'),DELIVERY_ENABLED:'false',DRY_RUN:'true',META_WABA_ID:'waba-test',META_PHONE_NUMBER_ID:'phone-test'}});
+ const child=spawn(process.execPath,['src/server.js'],{cwd:new URL('../',import.meta.url),env:{...process.env,PORT:'0',WIAPY_SECRET:secret,ADMIN_TOKEN:admin,META_APP_SECRET:appSecret,META_VERIFY_TOKEN:'verify-test',DB_PATH:join(dir,'db.sqlite'),DELIVERY_ENABLED:'false',DRY_RUN:'false',WHATSAPP_PROVIDER:'evolution',EVOLUTION_URL:'https://example.com',EVOLUTION_INSTANCE:'test',EVOLUTION_API_KEY:'fake-key',PRODUCTS_ACCESS_TOKEN:'fake-access',META_WABA_ID:'waba-test',META_PHONE_NUMBER_ID:'phone-test'}});
  t.after(async()=>{child.kill('SIGTERM');await new Promise(resolve=>{if(child.exitCode!==null)resolve();else child.once('exit',resolve);});rmSync(dir,{recursive:true,force:true});});
  const port=await new Promise((resolve,reject)=>{let buffer='';const timeout=setTimeout(()=>reject(Error('server timeout')),10000);child.stdout.on('data',d=>{buffer+=d;const match=buffer.match(/"port":(\d+)/);if(match){clearTimeout(timeout);resolve(match[1]);}});child.once('error',reject);child.once('exit',()=>{clearTimeout(timeout);reject(Error('server exited'));});});
  const base='http://127.0.0.1:'+port;const auth='Basic '+Buffer.from('admin:'+admin).toString('base64');
@@ -30,5 +30,10 @@ test('HTTP: painel protegido, fila pausada, webhook assinado, resolução manual
  const webhook={entry:[{id:'waba-test',changes:[{value:{metadata:{phone_number_id:'phone-test'},statuses:[{id:'wamid.test',biz_opaque_callback_data:'two',status:'delivered'}]}}]}]};
  assert.equal((await post('/webhooks/meta',webhook)).status,401);const raw=JSON.stringify(webhook);assert.equal((await post('/webhooks/meta',webhook,{'x-hub-signature-256':'sha256='+createHmac('sha256',appSecret).update(raw).digest('hex')})).status,200);
  // A compra na fila ainda não foi enviada: callback não deve mudar esse pedido.
+ assert.equal((await report()).rows.find(x=>x.id==='two').state,'queued');
+ const event={instance:'test',apikey:'fake-key',event:'messages.update',data:{keyId:'unknown',fromMe:true,status:'READ'}};
+ assert.equal((await post('/webhooks/evolution',{...event,apikey:'wrong'})).status,401);
+ assert.equal((await post('/webhooks/evolution',{...event,instance:'other'})).status,401);
+ assert.equal((await post('/webhooks/evolution',event)).status,200);
  assert.equal((await report()).rows.find(x=>x.id==='two').state,'queued');
 });

@@ -1,14 +1,20 @@
+import {connection,statuses} from './evolution.js';
 import http from 'node:http';
 import {readFileSync} from 'node:fs';
 import {equal,signature,sale,send} from './core.js';
 import {store} from './store.js';
 const env=process.env;
 for(const key of ['WIAPY_SECRET','ADMIN_TOKEN'])if(!env[key]||env[key].length<24)throw Error(`Configure ${key} com pelo menos 24 caracteres`);
-const cfg={dry:env.DRY_RUN!=='false',token:env.META_TOKEN,number:env.META_PHONE_NUMBER_ID,version:env.META_GRAPH_VERSION,carne:env.TEMPLATE_CARNE||'acesso_calculadora_carnes',combo:env.TEMPLATE_COMBO||'acesso_combo_calculadoras'};
-if(!cfg.dry)for(const key of ['META_TOKEN','META_PHONE_NUMBER_ID','META_GRAPH_VERSION','META_APP_SECRET','META_VERIFY_TOKEN'])if(!env[key])throw Error(`Configure ${key}`);
-if(!cfg.dry&&!/^v\d+\.0$/.test(cfg.version))throw Error('Versão Graph inválida');
+const cfg={provider:env.WHATSAPP_PROVIDER||'meta',evolutionUrl:env.EVOLUTION_URL?.replace(/\/$/,''),instance:env.EVOLUTION_INSTANCE,evolutionKey:env.EVOLUTION_API_KEY,productsAccessToken:env.PRODUCTS_ACCESS_TOKEN,dry:env.DRY_RUN!=='false',token:env.META_TOKEN,number:env.META_PHONE_NUMBER_ID,version:env.META_GRAPH_VERSION,carne:env.TEMPLATE_CARNE||'acesso_calculadora_carnes',combo:env.TEMPLATE_COMBO||'acesso_combo_calculadoras'};
+if(!['meta','evolution'].includes(cfg.provider))throw Error('WHATSAPP_PROVIDER inválido');
+if(cfg.evolutionUrl&&!/^https:\/\//.test(cfg.evolutionUrl))throw Error('EVOLUTION_URL deve usar HTTPS');
+if(!cfg.dry&&cfg.provider==='evolution')for(const key of ['EVOLUTION_URL','EVOLUTION_INSTANCE','EVOLUTION_API_KEY','PRODUCTS_ACCESS_TOKEN'])if(!env[key])throw Error(`Configure ${key}`);
+if(!cfg.dry&&cfg.provider==='meta')for(const key of ['META_TOKEN','META_PHONE_NUMBER_ID','META_GRAPH_VERSION','META_APP_SECRET','META_VERIFY_TOKEN'])if(!env[key])throw Error(`Configure ${key}`);
+if(!cfg.dry&&cfg.provider==='meta'&&!/^v\d+\.0$/.test(cfg.version))throw Error('Versão Graph inválida');
 const enabled=env.DELIVERY_ENABLED==='true';
 const mode=()=>!enabled?'paused':cfg.dry?'simulation':'live';
+let connectionCache;let connectionChecked=0;
+async function connectionInfo(){if(Date.now()-connectionChecked>30000||!connectionCache){connectionCache=await connection(cfg);connectionChecked=Date.now();}return connectionCache;}
 const assets=Object.fromEntries(['index.html','style.css','app.js'].map(name=>[name,readFileSync(new URL('./public/'+name,import.meta.url))]));
 const st=store(env.DB_PATH||'./data/deliveries.sqlite');
 const reply=(res,status,data)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(data));};
@@ -25,6 +31,7 @@ const server=http.createServer(async(req,res)=>{try{
  if(req.method==='GET'&&(url.pathname==='/admin'||url.pathname==='/admin/')){res.writeHead(200,{'content-type':'text/html; charset=utf-8'});return res.end(assets['index.html']);}
  const asset=url.pathname.slice('/admin/'.length);
  if(req.method==='GET'&&['style.css','app.js'].includes(asset)){res.writeHead(200,{'content-type':asset.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'});return res.end(assets[asset]);}
+ if(url.pathname==='/admin/connection'&&req.method==='GET')return reply(res,200,await connectionInfo());
  if(url.pathname==='/admin/deliveries'&&req.method==='GET'){
  const filters={q:url.searchParams.get('q'),state:url.searchParams.get('state'),page:Math.floor(Number(url.searchParams.get('page')))||1};
  for(const k of ['from','to']){const d=url.searchParams.get(k);if(d){if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return reply(res,400,{error:'invalid_date'});const ms=Date.parse(d+'T00:00:00-03:00');if(!Number.isFinite(ms))return reply(res,400,{error:'invalid_date'});filters[k]=ms+(k==='to'?86400000:0);}}
@@ -41,6 +48,10 @@ const server=http.createServer(async(req,res)=>{try{
  if(!equal(req.headers.authorization,env.WIAPY_SECRET))return reply(res,401,{error:'unauthorized'});
  const payload=JSON.parse((await body(req)).toString());const row=sale(payload);
  if(!row)return reply(res,200,{ignored:true});const inserted=st.add(row);return reply(res,200,{queued:!!inserted,duplicate:!inserted});}
+ if(url.pathname==='/webhooks/evolution'&&req.method==='POST'){
+ const p=JSON.parse((await body(req)).toString());
+ if(!cfg.evolutionKey||!equal(p.apikey,cfg.evolutionKey)||p.instance!==cfg.instance)return reply(res,401,{error:'unauthorized'});
+ for(const status of statuses(p))st.status(status);return reply(res,200,{ok:true});}
  if(url.pathname==='/webhooks/meta'&&req.method==='POST'){
  const raw=await body(req);if(!env.META_APP_SECRET||!signature(raw,env.META_APP_SECRET,req.headers['x-hub-signature-256']))return reply(res,401,{error:'signature_failed'});
  const p=JSON.parse(raw.toString());for(const e of p.entry||[])for(const c of e.changes||[]){if(env.META_WABA_ID&&String(e.id)!==env.META_WABA_ID)continue;if(env.META_PHONE_NUMBER_ID&&c.value?.metadata?.phone_number_id!==env.META_PHONE_NUMBER_ID)continue;for(const s of c.value?.statuses||[])st.status(s);}return reply(res,200,{ok:true});}

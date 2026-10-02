@@ -1,3 +1,4 @@
+import {sendEvolution} from './evolution.js';
 import {timingSafeEqual,createHmac} from 'node:crypto';
 export const CARNE='6a692b0b3d15a61538172466';
 export const PROPRIOS='6a72457d1b13df5c3c53b2f3';
@@ -16,6 +17,7 @@ export function sale(body){
 export function message(row,cfg){return {messaging_product:'whatsapp',to:row.phone,type:'template',biz_opaque_callback_data:row.id,template:{name:row.kind==='combo'?cfg.combo:cfg.carne,language:{code:'pt_BR'}}};}
 export async function send(row,cfg,fetcher=fetch){
  if(cfg.dry)return {state:'simulated'};
+ if(cfg.provider==='evolution')return sendEvolution(row,cfg,fetcher);
  let response;
  try{response=await fetcher(`https://graph.facebook.com/${cfg.version}/${cfg.number}/messages`,{method:'POST',headers:{authorization:`Bearer ${cfg.token}`,'content-type':'application/json'},body:JSON.stringify(message(row,cfg)),signal:AbortSignal.timeout(15000)});}catch{return {state:'uncertain',error:'network_or_timeout'};}
  let data;try{data=await response.json();}catch{return {state:'uncertain',error:'invalid_response'};}

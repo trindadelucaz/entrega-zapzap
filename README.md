@@ -69,3 +69,16 @@ Copie `.env.example` para `.env`, preencha os segredos, execute `npm test` e `np
 - Meta Cloud API: https://www.postman.com/meta/whatsapp-business-platform/documentation/wlk6lh4/whatsapp-cloud-api
 - Webhooks: https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/overview
 - Railway volumes: https://docs.railway.com/volumes
+
+
+## Evolution
+
+No serviço de entregas, configure `WHATSAPP_PROVIDER=evolution`, `EVOLUTION_URL` (HTTPS, sem `/manager`), `EVOLUTION_INSTANCE`, `EVOLUTION_API_KEY` (token da instância) e `PRODUCTS_ACCESS_TOKEN` (senha entregue ao comprador do combo). Conserve `DELIVERY_ENABLED=false` e `DRY_RUN=true` durante a configuração. As variáveis Meta podem permanecer; não são usadas para enviar quando o provedor é Evolution.
+
+Na instância Evolution, habilite o webhook com URL `https://SEU-DOMINIO/webhooks/evolution`, evento `MESSAGES_UPDATE`, e desative **Webhook by Events**. O callback deve incluir `instance` e `apikey` da instância; callbacks sem autenticação ou de outra instância são rejeitados. Não exponha tokens em links.
+
+O painel consulta a conexão a cada 30 segundos. Antes do envio, o sistema consulta se o telefone tem WhatsApp; um resultado negativo aparece como falha para atendimento pelo e-mail. Uma consulta indisponível causa tentativa posterior. Confirmação de envio não equivale à entrega: somente os eventos de entrega/leitura confirmam esses estados. Sem eventos, o registro permanece aceito pela API.
+
+Timeout ou erro depois de iniciar o envio fica incerto, sem repetição automática. Reinício durante envio também fica incerto. Pedidos duplicados são ignorados pelo ID do pagamento. Os eventos recebidos antes da resposta do envio são reaplicados quando o ID da mensagem fica disponível.
+
+Antes de habilitar envios reais, teste com comprador fictício e seu próprio telefone, confira o texto e os callbacks. Ativar `DELIVERY_ENABLED=true` processa todas as compras já na fila; revise a fila para evitar entregar novamente compras atendidas manualmente.
