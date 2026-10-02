@@ -86,3 +86,15 @@ Antes de habilitar envios reais, teste com comprador fictício e seu próprio te
 ### Teste isolado no painel
 
 O formulário “Testar entrega” faz um envio real ao telefone informado sem ativar a fila, mesmo com `DRY_RUN=true`. Exige autenticação de administrador, header de ação e configuração Evolution. Cada teste tem um ID independente, aparece como “Teste de entrega” e não é reenviado quando o mesmo pedido HTTP é repetido. Falhas de pré-consulta são registradas sem repetição automática neste teste. Para testar o outro texto, altere o campo de acesso.
+
+### Atendimento e reenvio
+
+O painel inicia em **Vendas reais**, com filtros para **Testes** e **Todos**. Números de teste têm ID `test:` e ficam fora dos totais de vendas.
+
+Em registros com falha, resultado incerto ou simulação, **Corrigir / reenviar** permite confirmar um telefone e reenfileirar o acesso. Requer modo real ativado. Entregas aceitas, em andamento, entregues ou lidas não podem ser reenviadas por essa ação. Resultados incertos exigem confirmação explícita após conferir o WhatsApp. Cada ação tem chave de idempotência e verifica se o status mudou antes de reenfileirar.
+
+O telefone original da compra permanece preservado. **Histórico** mostra os envios anteriores; callbacks de mensagens antigas atualizam o histórico sem alterar a tentativa atual. Reenvio de registro simulado fica disponível sem nova compra.
+
+**Consultar possível nono dígito** consulta o número original e, quando aplicável, a versão brasileira com nono dígito. Só sugere se o original não for encontrado e o candidato for encontrado. A existência de WhatsApp não comprova identidade: o administrador confirma o telefone e o envio.
+
+A conexão é consultada a cada 30 segundos. O painel mostra última consulta e o início **observado** de uma desconexão, persistido no banco; não é necessariamente a hora exata em que o WhatsApp desconectou. Falha de consulta é distinguida de desconexão confirmada.

@@ -22,7 +22,7 @@ test('HTTP: painel protegido, fila pausada, webhook assinado, resolução manual
  assert.equal((await post('/webhooks/wiapy',payload('one'),{authorization:secret})).status,200);
  assert.equal((await (await post('/webhooks/wiapy',payload('one'),{authorization:secret})).json()).duplicate,true);
  await post('/webhooks/wiapy',payload('two','79999990000'),{authorization:secret});
- const report=async()=> (await fetch(base+'/admin/deliveries',{headers:{authorization:auth}})).json();const data=await report();assert.equal(data.mode,'paused');assert.equal(data.total,2);assert.equal(data.rows.find(x=>x.id==='two').state,'queued');
+ const report=async()=> (await fetch(base+'/admin/deliveries?source=all',{headers:{authorization:auth}})).json();const data=await report();assert.equal(data.mode,'paused');assert.equal(data.total,2);assert.equal(data.rows.find(x=>x.id==='two').state,'queued');
  assert.equal((await post('/admin/resolve',{id:'one',resolved:true},{authorization:auth})).status,403);
  assert.equal((await post('/admin/resolve',{id:'one',resolved:true},{authorization:auth,'x-admin-action':'resolve'})).status,200);
  assert.equal((await report()).rows.find(x=>x.id==='one').resolved,1);
@@ -37,6 +37,11 @@ test('HTTP: painel protegido, fila pausada, webhook assinado, resolução manual
  const badTest=await (await post('/admin/test',invalidTest,{authorization:auth,'x-admin-action':'test'})).json();assert.equal(badTest.error,'invalid_phone');assert.equal(badTest.state,'failed');
  const saved=(await report()).rows.find(x=>x.id===badTest.id);assert.equal(saved.state,'failed');assert.equal(saved.raw_phone,'123');assert.equal(saved.attempts,0);
  assert.equal((await (await post('/admin/test',invalidTest,{authorization:auth,'x-admin-action':'test'})).json()).duplicate,true);
+ assert.equal((await post('/admin/resend',{},{authorization:auth})).status,403);
+ assert.equal((await post('/admin/resend',{},{authorization:auth,'x-admin-action':'resend'})).status,409);
+ assert.equal((await fetch(base+'/admin/history?id=one',{headers:{authorization:auth}})).status,200);
+ assert.equal((await (await fetch(base+'/admin/deliveries',{headers:{authorization:auth}})).json()).total,2);
+ assert.equal((await (await fetch(base+'/admin/deliveries?source=tests',{headers:{authorization:auth}})).json()).total,1);
  const event={instance:'test',apikey:'fake-key',event:'messages.update',data:{keyId:'unknown',fromMe:true,status:'READ'}};
  assert.equal((await post('/webhooks/evolution',{...event,apikey:'wrong'})).status,401);
  assert.equal((await post('/webhooks/evolution',{...event,instance:'other'})).status,401);

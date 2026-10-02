@@ -1,4 +1,4 @@
-import {connection,statuses} from './evolution.js';
+import {connection,statuses,suggestPhone} from './evolution.js';
 import http from 'node:http';
 import {readFileSync} from 'node:fs';
 import {equal,signature,sale,send,phone} from './core.js';
@@ -13,8 +13,8 @@ if(!cfg.dry&&cfg.provider==='meta')for(const key of ['META_TOKEN','META_PHONE_NU
 if(!cfg.dry&&cfg.provider==='meta'&&!/^v\d+\.0$/.test(cfg.version))throw Error('Versão Graph inválida');
 const enabled=env.DELIVERY_ENABLED==='true';
 const mode=()=>!enabled?'paused':cfg.dry?'simulation':'live';
-let connectionCache;let connectionChecked=0;
-async function connectionInfo(){if(Date.now()-connectionChecked>30000||!connectionCache){connectionCache=await connection(cfg);connectionChecked=Date.now();}return connectionCache;}
+let connectionCache;let connectionChecked=0;let connectionPending;
+async function connectionInfo(){if(connectionPending)return connectionPending;if(Date.now()-connectionChecked>30000||!connectionCache){connectionPending=connection(cfg).then(info=>{connectionCache=st.observeConnection(info);connectionChecked=Date.now();return connectionCache;}).finally(()=>{connectionPending=null;});return connectionPending;}return connectionCache;}
 const assets=Object.fromEntries(['index.html','style.css','app.js'].map(name=>[name,readFileSync(new URL('./public/'+name,import.meta.url))]));
 const st=store(env.DB_PATH||'./data/deliveries.sqlite');
 const reply=(res,status,data)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(data));};
@@ -33,9 +33,22 @@ const server=http.createServer(async(req,res)=>{try{
  if(req.method==='GET'&&['style.css','app.js'].includes(asset)){res.writeHead(200,{'content-type':asset.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'});return res.end(assets[asset]);}
  if(url.pathname==='/admin/connection'&&req.method==='GET')return reply(res,200,await connectionInfo());
  if(url.pathname==='/admin/deliveries'&&req.method==='GET'){
- const filters={q:url.searchParams.get('q'),state:url.searchParams.get('state'),page:Math.floor(Number(url.searchParams.get('page')))||1};
+ const filters={q:url.searchParams.get('q'),state:url.searchParams.get('state'),source:url.searchParams.get('source')||'sales',page:Math.floor(Number(url.searchParams.get('page')))||1};
  for(const k of ['from','to']){const d=url.searchParams.get(k);if(d){if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return reply(res,400,{error:'invalid_date'});const ms=Date.parse(d+'T00:00:00-03:00');if(!Number.isFinite(ms))return reply(res,400,{error:'invalid_date'});filters[k]=ms+(k==='to'?86400000:0);}}
  return reply(res,200,{...st.list(filters),mode:mode()});}
+ if(url.pathname==='/admin/history'&&req.method==='GET')return reply(res,200,{rows:st.history(url.searchParams.get('id'))});
+ if(url.pathname==='/admin/suggest-phone'&&req.method==='POST'){
+ if(req.headers['x-admin-action']!=='suggest')return reply(res,403,{error:'invalid_action'});
+ const p=JSON.parse((await body(req)).toString());const r=st.get(p.id);if(!r)return reply(res,404,{error:'not_found'});
+ if(cfg.provider!=='evolution')return reply(res,409,{error:'evolution_not_configured'});
+ try{return reply(res,200,await suggestPhone(phone(r.phone||r.raw_phone),cfg));}catch{return reply(res,409,{error:'evolution_number_check_failed'});}}
+ if(url.pathname==='/admin/resend'&&req.method==='POST'){
+ if(req.headers['x-admin-action']!=='resend')return reply(res,403,{error:'invalid_action'});
+ if(mode()!=='live')return reply(res,409,{error:'live_required'});
+ const p=JSON.parse((await body(req)).toString());
+ if(typeof p.id!=='string'||typeof p.requestId!=='string'||!/^[-a-f0-9]{36}$/.test(p.requestId)||!Number.isSafeInteger(p.updated))return reply(res,400,{error:'invalid_payload'});
+ let number;try{number=phone(p.phone);}catch{return reply(res,400,{error:'invalid_phone'});}
+ try{return reply(res,200,st.requeue(p.id,number,p.requestId,p.updated,p.acknowledged===true));}catch(e){return reply(res,e.message==='not_found'?404:409,{error:['not_found','state_changed','uncertain_requires_confirmation'].includes(e.message)?e.message:'internal_error'});}}
  if(url.pathname==='/admin/test'&&req.method==='POST'){
  if(req.headers['x-admin-action']!=='test')return reply(res,403,{error:'invalid_action'});
  if(cfg.provider!=='evolution'||!cfg.evolutionUrl||!cfg.instance||!cfg.evolutionKey)return reply(res,409,{error:'evolution_not_configured'});
@@ -72,5 +85,7 @@ const server=http.createServer(async(req,res)=>{try{
  }catch(e){const expected=['invalid_phone','invalid_payment_id','too_large'];const status=e instanceof SyntaxError||expected.includes(e.message)?400:500;console.error(JSON.stringify({event:'request_error',code:status}));reply(res,status,{error:status===400?'invalid_payload':'internal_error'});}});
 let busy=false;
 const timer=setInterval(async()=>{if(busy||!enabled)return;busy=true;let row;try{row=st.next();if(row){const result=await send(row,cfg);if(result.state==='retry'&&row.attempts>=4)result.state='failed';st.finish(row,result);console.log(JSON.stringify({event:'delivery',id:row.id,state:result.state}));}}catch{console.error(JSON.stringify({event:'worker_error'}));}finally{busy=false;}},1000);
+const connectionTimer=setInterval(()=>{connectionInfo().catch(()=>{});},30000);connectionTimer.unref();
+if(enabled)connectionInfo().catch(()=>{});
 server.listen(env.PORT===undefined?3000:Number(env.PORT),'0.0.0.0',()=>console.log(JSON.stringify({event:'ready',mode:mode(),port:server.address().port})));
-for(const sig of ['SIGTERM','SIGINT'])process.on(sig,()=>{clearInterval(timer);server.close();setTimeout(()=>process.exit(0),20000).unref();});
+for(const sig of ['SIGTERM','SIGINT'])process.on(sig,()=>{clearInterval(timer);clearInterval(connectionTimer);server.close();setTimeout(()=>process.exit(0),20000).unref();});

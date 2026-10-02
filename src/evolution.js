@@ -32,3 +32,12 @@ export function statuses(payload){
  const map={SERVER_ACK:'sent',DELIVERY_ACK:'delivered',READ:'read',PLAYED:'read',ERROR:'failed'};
  return (Array.isArray(payload.data)?payload.data:[payload.data]).filter(x=>x?.fromMe===true&&typeof x.keyId==='string'&&map[x.status]).map(x=>({id:x.keyId,status:map[x.status],timestamp:0,error:x.status==='ERROR'?'evolution_delivery_failed':null}));
 }
+
+export async function suggestPhone(number,cfg,fetcher=fetch){
+ // Candidato apenas para celular brasileiro com DDD + oito dígitos.
+ if(!/^55[1-9]\d[6-9]\d{7}$/.test(number))return {suggestion:null};
+ const candidate=number.slice(0,4)+'9'+number.slice(4);
+ const check=async value=>{const data=await request(cfg,'/chat/whatsappNumbers',{numbers:[value]},fetcher);if(!Array.isArray(data)||data.length!==1||typeof data[0].exists!=='boolean')throw Error('number_check_failed');return data[0].exists;};
+ if(await check(number))return {suggestion:null,originalExists:true};
+ return {suggestion:await check(candidate)?candidate:null};
+}
