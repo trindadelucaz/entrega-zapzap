@@ -14,6 +14,7 @@ export function store(path){
  UPDATE deliveries SET state='uncertain',error='restart_during_send',updated=${Date.now()} WHERE state='sending';`);
  return {db,
  add(r){const now=Date.now();return db.prepare('INSERT OR IGNORE INTO deliveries(id,phone,raw_phone,name,email,kind,state,error,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?)').run(r.id,r.phone,r.raw_phone||r.phone,r.name||'',r.email||'',r.kind,r.error?'failed':'queued',r.error||null,now,now).changes;},
+ addTest(r){db.exec('BEGIN IMMEDIATE');try{const added=this.add(r);if(added)db.prepare("UPDATE deliveries SET state='sending',attempts=1 WHERE id=?").run(r.id);db.exec('COMMIT');return added;}catch(e){db.exec('ROLLBACK');throw e;}},
  next(){const r=db.prepare("SELECT * FROM deliveries WHERE state IN ('queued','retry') AND due<=? ORDER BY created LIMIT 1").get(Date.now());if(r)db.prepare("UPDATE deliveries SET state='sending',attempts=attempts+1,updated=? WHERE id=?").run(Date.now(),r.id);return r;},
  finish(r,result){db.prepare("UPDATE deliveries SET state=?,mid=COALESCE(?,mid),error=?,due=?,updated=? WHERE id=? AND state='sending'").run(result.state,result.mid||null,result.error||null,Date.now()+60000*2**r.attempts,Date.now(),r.id);if(result.mid)for(const event of db.prepare('SELECT * FROM events WHERE mid=? ORDER BY timestamp').all(result.mid))this.status({id:event.mid,status:event.status,timestamp:event.timestamp,error:event.error});},
  status(s){if(!['sent','delivered','read','failed'].includes(s.status)||typeof s.id!=='string')return;

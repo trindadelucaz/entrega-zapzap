@@ -20,3 +20,12 @@ async function load(){if(busy)return;busy=true;try{
  $('#empty').hidden=!!data.rows.length;$('#count').textContent=data.total+' registros • até 50 por página';$('#page').textContent='Página '+page;$('#prev').disabled=page<=1;$('#next').disabled=page*50>=data.total;$('#notice').textContent='Atualizado às '+date(Date.now())+'. Atualização automática a cada 30 segundos.';
  }catch(e){$('#notice').textContent=e.message;}finally{busy=false;}}
 $('#filters').addEventListener('submit',e=>{e.preventDefault();page=1;load();});$('#refresh').addEventListener('click',load);$('#prev').addEventListener('click',()=>{page--;load();});$('#next').addEventListener('click',()=>{page++;load();});load();setInterval(load,30000);
+
+let testRequestId=crypto.randomUUID();let testSending=false;
+$('#test-form').addEventListener('input',()=>{if(!testSending)testRequestId=crypto.randomUUID();});
+$('#test-form').addEventListener('submit',async e=>{e.preventDefault();if(testSending)return;testSending=true;$('#test-send').disabled=true;
+ try{const values=Object.fromEntries(new FormData(e.currentTarget));const response=await fetch('/admin/test',{method:'POST',headers:{'content-type':'application/json','x-admin-action':'test'},body:JSON.stringify({...values,requestId:testRequestId})});const data=await response.json();
+ if(!response.ok)throw Error(reasons[data.error]||'Não foi possível iniciar o teste. Confira as variáveis da Evolution.');
+ $('#test-notice').textContent=data.duplicate?'Este teste já foi registrado. Confira o resultado no relatório.':data.state==='accepted'?'Teste aceito pela API. Aguarde a confirmação de entrega no relatório.':(reasons[data.error]||'Resultado: '+(labels[data.state]||data.state));await load();
+ }catch(e){$('#test-notice').textContent=e.message+'. Se a conexão caiu, confira o relatório antes de tentar novamente.';}finally{testSending=false;$('#test-send').disabled=false;}
+});

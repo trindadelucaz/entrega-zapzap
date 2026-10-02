@@ -31,6 +31,8 @@ test('HTTP: painel protegido, fila pausada, webhook assinado, resolução manual
  assert.equal((await post('/webhooks/meta',webhook)).status,401);const raw=JSON.stringify(webhook);assert.equal((await post('/webhooks/meta',webhook,{'x-hub-signature-256':'sha256='+createHmac('sha256',appSecret).update(raw).digest('hex')})).status,200);
  // A compra na fila ainda não foi enviada: callback não deve mudar esse pedido.
  assert.equal((await report()).rows.find(x=>x.id==='two').state,'queued');
+ assert.equal((await post('/admin/test',{},{authorization:auth})).status,403);
+ assert.equal((await post('/admin/test',{kind:'invalid',requestId:'bad'},{authorization:auth,'x-admin-action':'test'})).status,400);
  const event={instance:'test',apikey:'fake-key',event:'messages.update',data:{keyId:'unknown',fromMe:true,status:'READ'}};
  assert.equal((await post('/webhooks/evolution',{...event,apikey:'wrong'})).status,401);
  assert.equal((await post('/webhooks/evolution',{...event,instance:'other'})).status,401);

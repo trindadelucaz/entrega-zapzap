@@ -25,3 +25,5 @@ test('callback antecipado Evolution é reaplicado e não regride leitura',()=>{
  const p={event:'messages.update',data:{keyId:'mid',fromMe:true,status:'DELIVERY_ACK'}};for(const s of statuses(p))st.status(s);st.finish(r,{state:'accepted',mid:'mid'});assert.equal(st.list()[0].state,'delivered');
  for(const s of statuses({...p,data:{...p.data,status:'READ'}}))st.status(s);for(const s of statuses(p))st.status(s);assert.equal(st.list()[0].state,'read');assert.equal(statuses({...p,data:{...p.data,fromMe:false}}).length,0);st.db.close();
 });
+
+test('teste isolado não entra na fila e repetir ID não reenvia',()=>{const st=store(':memory:');const r={...row,id:'test:example'};assert.equal(st.addTest(r),1);assert.equal(st.next(),undefined);assert.equal(st.addTest(r),0);st.finish({...r,attempts:0},{state:'accepted',mid:'test-mid'});assert.equal(st.list()[0].attempts,1);assert.equal(st.list()[0].state,'accepted');st.db.close();});

@@ -1,7 +1,7 @@
 import {connection,statuses} from './evolution.js';
 import http from 'node:http';
 import {readFileSync} from 'node:fs';
-import {equal,signature,sale,send} from './core.js';
+import {equal,signature,sale,send,phone} from './core.js';
 import {store} from './store.js';
 const env=process.env;
 for(const key of ['WIAPY_SECRET','ADMIN_TOKEN'])if(!env[key]||env[key].length<24)throw Error(`Configure ${key} com pelo menos 24 caracteres`);
@@ -36,6 +36,17 @@ const server=http.createServer(async(req,res)=>{try{
  const filters={q:url.searchParams.get('q'),state:url.searchParams.get('state'),page:Math.floor(Number(url.searchParams.get('page')))||1};
  for(const k of ['from','to']){const d=url.searchParams.get(k);if(d){if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return reply(res,400,{error:'invalid_date'});const ms=Date.parse(d+'T00:00:00-03:00');if(!Number.isFinite(ms))return reply(res,400,{error:'invalid_date'});filters[k]=ms+(k==='to'?86400000:0);}}
  return reply(res,200,{...st.list(filters),mode:mode()});}
+ if(url.pathname==='/admin/test'&&req.method==='POST'){
+ if(req.headers['x-admin-action']!=='test')return reply(res,403,{error:'invalid_action'});
+ if(cfg.provider!=='evolution'||!cfg.evolutionUrl||!cfg.instance||!cfg.evolutionKey)return reply(res,409,{error:'evolution_not_configured'});
+ const p=JSON.parse((await body(req)).toString());
+ if(!['carne','combo'].includes(p.kind)||typeof p.requestId!=='string'||!/^[-a-f0-9]{36}$/.test(p.requestId))return reply(res,400,{error:'invalid_payload'});
+ if(p.kind==='combo'&&!cfg.productsAccessToken)return reply(res,409,{error:'products_token_missing'});
+ const r={id:'test:'+p.requestId,phone:phone(p.phone),raw_phone:String(p.phone).slice(0,80),name:'Teste de entrega',email:'',kind:p.kind,attempts:0};
+ if(!st.addTest(r))return reply(res,200,{duplicate:true,id:r.id});
+ const result=await send(r,{...cfg,dry:false});
+ if(result.state==='retry')result.state='failed';st.finish(r,result);
+ return reply(res,200,{id:r.id,...result});}
  if(url.pathname==='/admin/resolve'&&req.method==='POST'){
  if(req.headers['x-admin-action']!=='resolve')return reply(res,403,{error:'invalid_action'});
  const p=JSON.parse((await body(req)).toString());if(typeof p.id!=='string'||typeof p.resolved!=='boolean')return reply(res,400,{error:'invalid_payload'});

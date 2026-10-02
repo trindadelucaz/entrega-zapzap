@@ -82,3 +82,7 @@ O painel consulta a conexão a cada 30 segundos. Antes do envio, o sistema consu
 Timeout ou erro depois de iniciar o envio fica incerto, sem repetição automática. Reinício durante envio também fica incerto. Pedidos duplicados são ignorados pelo ID do pagamento. Os eventos recebidos antes da resposta do envio são reaplicados quando o ID da mensagem fica disponível.
 
 Antes de habilitar envios reais, teste com comprador fictício e seu próprio telefone, confira o texto e os callbacks. Ativar `DELIVERY_ENABLED=true` processa todas as compras já na fila; revise a fila para evitar entregar novamente compras atendidas manualmente.
+
+### Teste isolado no painel
+
+O formulário “Testar entrega” faz um envio real ao telefone informado sem ativar a fila, mesmo com `DRY_RUN=true`. Exige autenticação de administrador, header de ação e configuração Evolution. Cada teste tem um ID independente, aparece como “Teste de entrega” e não é reenviado quando o mesmo pedido HTTP é repetido. Falhas de pré-consulta são registradas sem repetição automática neste teste. Para testar o outro texto, altere o campo de acesso.
