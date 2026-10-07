@@ -99,6 +99,12 @@ Na instância Evolution, habilite o webhook com URL `https://SEU-DOMINIO/webhook
 
 O painel consulta a conexão a cada 30 segundos. Antes do envio, o sistema consulta se o telefone tem WhatsApp; um resultado negativo aparece como falha para atendimento pelo e-mail. Uma consulta indisponível causa tentativa posterior. Confirmação de envio não equivale à entrega: somente os eventos de entrega/leitura confirmam esses estados. Sem eventos, o registro permanece aceito pela API.
 
+### Conexão pelo painel
+
+A aba **WhatsApp** mostra a instância, o número conectado, a última consulta e a última conexão observada. Quando a sessão estiver desconectada, **Gerar QR Code** usa a instância já configurada no Railway; nenhuma chave é enviada ao navegador. **Trocar número** exige confirmação, encerra a sessão atual e só então solicita outro QR Code. Os pedidos permanecem no banco e aguardam a reconexão.
+
+Essa função gerencia uma única instância. Ela não cria ou exclui instâncias, não altera as variáveis do Railway e não implementa roteamento de produtos entre números. A chave configurada em `EVOLUTION_API_KEY` precisa ter permissão para consultar, conectar e encerrar a instância informada em `EVOLUTION_INSTANCE`.
+
 Timeout ou erro depois de iniciar o envio fica incerto, sem repetição automática. Reinício durante envio também fica incerto. Pedidos duplicados são ignorados pelo ID do pagamento. Os eventos recebidos antes da resposta do envio são reaplicados quando o ID da mensagem fica disponível.
 
 Antes de habilitar envios reais, teste com comprador fictício e seu próprio telefone, confira o texto e os callbacks. Ativar `DELIVERY_ENABLED=true` processa todas as compras já na fila; revise a fila para evitar entregar novamente compras atendidas manualmente.

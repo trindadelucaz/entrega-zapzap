@@ -3,6 +3,22 @@ export async function request(cfg,path,body,fetcher=fetch){
  if(!response.ok)throw Error('evolution_http_'+response.status);
  return response.json();
 }
+async function instanceRequest(cfg,action,method='GET',fetcher=fetch){
+ if(!cfg.evolutionUrl||!cfg.instance||!cfg.evolutionKey)throw Error('evolution_not_configured');
+ const response=await fetcher(`${cfg.evolutionUrl}/instance/${action}/${encodeURIComponent(cfg.instance)}`,{method,headers:{apikey:cfg.evolutionKey,'content-type':'application/json'},signal:AbortSignal.timeout(20000)});
+ if(!response.ok)throw Error('evolution_http_'+response.status);
+ const data=await response.json();if(data?.error===true)throw Error('evolution_action_failed');return data;
+}
+const qrValue=data=>{const value=data?.base64||data?.qrcode?.base64||data?.qrcode?.base64Qr||data?.qrCode?.base64;if(typeof value!=='string'||value.length<100)return null;return value.startsWith('data:image/')?value:`data:image/png;base64,${value}`;};
+export async function whatsappDetails(cfg,fetcher=fetch){
+ const status=await connection(cfg,fetcher);let phone='',profileName='';
+ if(status.state==='connected')try{const response=await fetcher(`${cfg.evolutionUrl}/instance/fetchInstances?instanceName=${encodeURIComponent(cfg.instance)}`,{headers:{apikey:cfg.evolutionKey,'content-type':'application/json'},signal:AbortSignal.timeout(15000)});if(response.ok){const rows=await response.json();const item=Array.isArray(rows)?rows.find(x=>x?.name===cfg.instance||x?.instance?.instanceName===cfg.instance)||rows[0]:null;phone=String(item?.ownerJid||item?.instance?.ownerJid||'').split('@')[0].replace(/\D/g,'');profileName=String(item?.profileName||item?.instance?.profileName||'').slice(0,100);}}catch{}
+ return {...status,instance:cfg.instance||'',phone,profileName};
+}
+export async function connectWhatsapp(cfg,fetcher=fetch){
+ const data=await instanceRequest(cfg,'connect','GET',fetcher);const state=data?.instance?.state==='open'||data?.instance?.status==='open'?'connected':'connecting';return {state,qr:qrValue(data)};
+}
+export async function logoutWhatsapp(cfg,fetcher=fetch){await instanceRequest(cfg,'logout','DELETE',fetcher);return {ok:true};}
 export async function connection(cfg,fetcher=fetch){
  if(cfg.provider!=='evolution')return {provider:'meta',state:'not_checked'};
  if(!cfg.evolutionUrl||!cfg.instance||!cfg.evolutionKey)return {provider:'evolution',state:'not_configured'};

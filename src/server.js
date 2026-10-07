@@ -1,4 +1,4 @@
-import {connection,statuses,suggestPhone} from './evolution.js';
+import {whatsappDetails,connectWhatsapp,logoutWhatsapp,statuses,suggestPhone} from './evolution.js';
 import http from 'node:http';
 import {readFileSync} from 'node:fs';
 import {equal,signature,sale,send,phone,renderDeliveryMessage} from './core.js';
@@ -13,8 +13,8 @@ if(!cfg.dry&&cfg.provider==='meta')for(const key of ['META_TOKEN','META_PHONE_NU
 if(!cfg.dry&&cfg.provider==='meta'&&!/^v\d+\.0$/.test(cfg.version))throw Error('Versão Graph inválida');
 const enabled=env.DELIVERY_ENABLED==='true';
 const mode=()=>!enabled?'paused':cfg.dry?'simulation':'live';
-let connectionCache;let connectionChecked=0;let connectionPending;
-async function connectionInfo(){if(connectionPending)return connectionPending;if(Date.now()-connectionChecked>30000||!connectionCache){connectionPending=connection(cfg).then(info=>{connectionCache=st.observeConnection(info);connectionChecked=Date.now();return connectionCache;}).finally(()=>{connectionPending=null;});return connectionPending;}return connectionCache;}
+let connectionCache;let connectionChecked=0;let connectionPending;let lastWhatsappAction=0;
+async function connectionInfo(force=false){if(connectionPending)return connectionPending;if(force||Date.now()-connectionChecked>30000||!connectionCache){connectionPending=whatsappDetails(cfg).then(info=>{connectionCache=st.observeConnection(info);connectionChecked=Date.now();return connectionCache;}).finally(()=>{connectionPending=null;});return connectionPending;}return connectionCache;}
 const assets=Object.fromEntries(['index.html','style.css','app.js'].map(name=>[name,readFileSync(new URL('./public/'+name,import.meta.url))]));
 const st=store(env.DB_PATH||'./data/deliveries.sqlite',{productsAccessToken:cfg.productsAccessToken});
 const reply=(res,status,data)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(data));};
@@ -31,7 +31,11 @@ const server=http.createServer(async(req,res)=>{try{
  if(req.method==='GET'&&(url.pathname==='/admin'||url.pathname==='/admin/')){res.writeHead(200,{'content-type':'text/html; charset=utf-8'});return res.end(assets['index.html']);}
  const asset=url.pathname.slice('/admin/'.length);
  if(req.method==='GET'&&['style.css','app.js'].includes(asset)){res.writeHead(200,{'content-type':asset.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'});return res.end(assets[asset]);}
- if(url.pathname==='/admin/connection'&&req.method==='GET')return reply(res,200,await connectionInfo());
+ if(url.pathname==='/admin/connection'&&req.method==='GET')return reply(res,200,await connectionInfo(url.searchParams.get('refresh')==='1'));
+ if(url.pathname==='/admin/whatsapp/connect'&&req.method==='POST'){
+  if(req.headers['x-admin-action']!=='connect-whatsapp')return reply(res,403,{error:'invalid_action'});if(cfg.provider!=='evolution')return reply(res,409,{error:'evolution_not_configured'});if(Date.now()-lastWhatsappAction<3000)return reply(res,429,{error:'action_too_fast'});lastWhatsappAction=Date.now();try{const result=await connectWhatsapp(cfg);connectionChecked=0;return reply(res,200,result);}catch{return reply(res,409,{error:'evolution_action_failed'});}}
+ if(url.pathname==='/admin/whatsapp/logout'&&req.method==='POST'){
+  if(req.headers['x-admin-action']!=='logout-whatsapp')return reply(res,403,{error:'invalid_action'});const p=JSON.parse((await body(req)).toString());if(p.confirm!=='TROCAR')return reply(res,400,{error:'confirmation_required'});if(cfg.provider!=='evolution')return reply(res,409,{error:'evolution_not_configured'});if(Date.now()-lastWhatsappAction<3000)return reply(res,429,{error:'action_too_fast'});lastWhatsappAction=Date.now();try{await logoutWhatsapp(cfg);connectionChecked=0;connectionCache=st.observeConnection({provider:'evolution',state:'disconnected',instance:cfg.instance,phone:'',profileName:''});return reply(res,200,{ok:true});}catch{return reply(res,409,{error:'evolution_action_failed'});}}
  if(url.pathname==='/admin/products'&&req.method==='GET')return reply(res,200,{rows:st.products(true)});
  if(url.pathname==='/admin/products'&&req.method==='POST'){
   if(req.headers['x-admin-action']!=='save-product')return reply(res,403,{error:'invalid_action'});

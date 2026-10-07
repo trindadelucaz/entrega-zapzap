@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {send} from '../src/core.js';
-import {statuses,connection} from '../src/evolution.js';
+import {statuses,connection,whatsappDetails,connectWhatsapp,logoutWhatsapp} from '../src/evolution.js';
 import {store} from '../src/store.js';
 const cfg={provider:'evolution',dry:false,evolutionUrl:'https://example.com',instance:'test',evolutionKey:'fake-key',productsAccessToken:'fake-access'};
 const row={id:'order',phone:'5579999990000',kind:'combo'};
@@ -19,6 +19,10 @@ test('timeout após POST é incerto, consulta inválida não envia',async()=>{
  const mock=async url=>{if(url.includes('connectionState'))return response({instance:{state:'open'}});if(url.includes('whatsappNumbers'))return response([{exists:true}]);throw Error('timeout');};assert.equal((await send(row,cfg,mock)).state,'uncertain');
  assert.equal((await send(row,cfg,async url=>response(url.includes('connectionState')?{instance:{state:'open'}}:{}))).state,'retry');
  assert.equal((await connection(cfg,async()=>{throw Error();})).state,'unavailable');
+});
+test('painel consulta o número e controla QR e logout sem expor a chave',async()=>{
+ const calls=[];const qr='a'.repeat(200);const mock=async(url,options={})=>{calls.push([url,options]);if(url.includes('connectionState'))return response({instance:{state:'open'}});if(url.includes('fetchInstances'))return response([{name:'test',ownerJid:'5579999990000@s.whatsapp.net',profileName:'Entregas'}]);if(url.includes('/connect/'))return response({count:1,base64:qr});if(url.includes('/logout/'))return response({status:'SUCCESS'});throw Error('unexpected');};
+ const details=await whatsappDetails(cfg,mock);assert.equal(details.state,'connected');assert.equal(details.phone,'5579999990000');assert.equal(details.profileName,'Entregas');const connected=await connectWhatsapp(cfg,mock);assert.equal(connected.state,'connecting');assert.equal(connected.qr,'data:image/png;base64,'+qr);assert.deepEqual(await logoutWhatsapp(cfg,mock),{ok:true});assert.equal(calls.find(([url])=>url.includes('/connect/'))[1].method,'GET');assert.equal(calls.find(([url])=>url.includes('/logout/'))[1].method,'DELETE');assert.ok(calls.every(([,options])=>options.headers.apikey==='fake-key'));
 });
 test('callback antecipado Evolution é reaplicado e não regride leitura',()=>{
  const st=store(':memory:');st.add({...row,name:'Teste',email:'test@example.com'});const r=st.next();
