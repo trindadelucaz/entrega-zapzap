@@ -7,7 +7,7 @@ Backend Node 24 com SQLite e painel privado de entregas. Sem dependências npm e
 - Recebe compras pagas da Wiapy e grava antes de responder, sem aguardar o envio da Meta.
 - Usa o ID do pagamento para evitar duplicação do mesmo pedido.
 - Mantém um catálogo configurável de produtos, IDs Wiapy, links, tokens e blocos de mensagem.
-- Combina automaticamente todos os produtos reconhecidos na mesma compra em uma única mensagem.
+- Combina automaticamente os produtos reconhecidos na mesma compra por WhatsApp de entrega. Se uma compra tiver produtos atribuídos a números diferentes, cria uma entrega para cada número.
 - Os produtos atuais de Carnes e Produtos Próprios são criados automaticamente na primeira inicialização, preservando o comportamento anterior.
 - Telefone inválido vira falha no relatório, com nome, e-mail e telefone original para atendimento manual.
 - Não cria usuários no Lovable. Mantenha o webhook atual que libera o acesso.
@@ -29,6 +29,7 @@ A aba **Produtos** permite cadastrar e editar uma entrega sem alterar o backend:
 - bloco da mensagem com prévia;
 - tipo principal ou complemento e, para complementos, o produto principal obrigatório;
 - ordem e situação ativa/inativa. A situação também pode ser alterada diretamente pela chavinha no card.
+- WhatsApp responsável pela entrega; complementos podem herdar o número do produto principal.
 
 Variáveis aceitas: `{{nome_cliente}}`, `{{email_cliente}}`, `{{nome_produto}}`, `{{link_acesso}}`, `{{link_tutoriais}}` e `{{token_acesso}}`. IDs não podem pertencer a mais de um produto. Produto pausado deixa de ser reconhecido em novas compras, mas o histórico e as mensagens já gravadas permanecem intactos.
 
@@ -93,17 +94,21 @@ Copie `.env.example` para `.env`, preencha os segredos, execute `npm test` e `np
 
 ## Evolution
 
-No serviço de entregas, configure `WHATSAPP_PROVIDER=evolution`, `EVOLUTION_URL` (HTTPS, sem `/manager`), `EVOLUTION_INSTANCE`, `EVOLUTION_API_KEY` (token da instância) e `PRODUCTS_ACCESS_TOKEN` (senha entregue ao comprador do combo). Conserve `DELIVERY_ENABLED=false` e `DRY_RUN=true` durante a configuração. As variáveis Meta podem permanecer; não são usadas para enviar quando o provedor é Evolution.
+No serviço de entregas, configure `WHATSAPP_PROVIDER=evolution`, `EVOLUTION_URL` (HTTPS, sem `/manager`), `EVOLUTION_INSTANCE`, `EVOLUTION_API_KEY` e `PRODUCTS_ACCESS_TOKEN` (senha entregue ao comprador do combo). `EVOLUTION_API_KEY` deve ser a chave global `AUTHENTICATION_API_KEY` da instalação Evolution, pois o painel usa essa autorização para criar e administrar instâncias. Conserve `DELIVERY_ENABLED=false` e `DRY_RUN=true` durante a configuração. As variáveis Meta podem permanecer; não são usadas para enviar quando o provedor é Evolution.
 
-Na instância Evolution, habilite o webhook com URL `https://SEU-DOMINIO/webhooks/evolution`, evento `MESSAGES_UPDATE`, e desative **Webhook by Events**. O callback deve incluir `instance` e `apikey` da instância; callbacks sem autenticação ou de outra instância são rejeitados. Não exponha tokens em links.
+`EVOLUTION_INSTANCE` identifica a conexão inicial já existente e `EVOLUTION_CONNECTION_NAME` define o nome amigável dela no painel. `PUBLIC_URL` é opcional, mas recomendado para fixar o domínio público usado nos callbacks. Na primeira inicialização desta versão, a instância atual é migrada automaticamente como conexão principal; produtos principais existentes são associados a ela e complementos continuam herdando a conexão do principal.
+
+Para a instância inicial, habilite o webhook com URL `https://SEU-DOMINIO/webhooks/evolution`, evento `MESSAGES_UPDATE`, e desative **Webhook by Events**. Novas conexões criadas no painel recebem automaticamente uma instância, um token exclusivo e esse webhook. O banco conserva somente o hash do token usado para validar callbacks; a chave global e os tokens nunca são enviados ao navegador. Callbacks sem autenticação ou de instância desconhecida são rejeitados.
 
 O painel consulta a conexão a cada 30 segundos. Antes do envio, o sistema consulta se o telefone tem WhatsApp; um resultado negativo aparece como falha para atendimento pelo e-mail. Uma consulta indisponível causa tentativa posterior. Confirmação de envio não equivale à entrega: somente os eventos de entrega/leitura confirmam esses estados. Sem eventos, o registro permanece aceito pela API.
 
-### Conexão pelo painel
+### Conexões pelo painel
 
-A aba **WhatsApp** mostra a instância, o número conectado, a última consulta e a última conexão observada. Quando a sessão estiver desconectada, **Gerar QR Code** usa a instância já configurada no Railway; nenhuma chave é enviada ao navegador. **Trocar número** exige confirmação, encerra a sessão atual e só então solicita outro QR Code. Os pedidos permanecem no banco e aguardam a reconexão.
+A aba **WhatsApps** lista cada conexão, número conectado, instância, produtos vinculados, última consulta e última conexão observada. **Adicionar WhatsApp** cria uma instância separada e mostra o QR Code sem alterar a conexão atual. Quando uma sessão estiver desconectada, **Gerar QR Code** reconecta somente aquela instância. **Trocar número** exige confirmação e encerra somente a sessão selecionada; os outros números continuam funcionando.
 
-Essa função gerencia uma única instância. Ela não cria ou exclui instâncias, não altera as variáveis do Railway e não implementa roteamento de produtos entre números. A chave configurada em `EVOLUTION_API_KEY` precisa ter permissão para consultar, conectar e encerrar a instância informada em `EVOLUTION_INSTANCE`.
+Na aba **Produtos**, cada produto principal pode ser direcionado para uma conexão. Um complemento pode usar uma conexão própria ou a opção **Mesmo WhatsApp do produto principal**. Os cards deixam explícito qual número fará a entrega. Se uma mesma compra contiver produtos destinados a conexões diferentes, o sistema separa as mensagens por conexão, mas mantém o ID do pagamento como chave global para que a repetição do webhook não duplique nenhuma delas.
+
+O painel não altera variáveis do Railway. A conexão definida por `EVOLUTION_INSTANCE` permanece como principal e serve de seleção inicial para novos produtos. A chave configurada em `EVOLUTION_API_KEY` precisa ter permissão global para criar, consultar, conectar e encerrar instâncias.
 
 Timeout ou erro depois de iniciar o envio fica incerto, sem repetição automática. Reinício durante envio também fica incerto. Pedidos duplicados são ignorados pelo ID do pagamento. Os eventos recebidos antes da resposta do envio são reaplicados quando o ID da mensagem fica disponível.
 

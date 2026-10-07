@@ -16,7 +16,7 @@ test('HTTP: painel protegido, fila pausada, webhook assinado, resolução manual
  t.after(async()=>{child.kill('SIGTERM');await new Promise(resolve=>{if(child.exitCode!==null)resolve();else child.once('exit',resolve);});rmSync(dir,{recursive:true,force:true});});
  const port=await new Promise((resolve,reject)=>{let buffer='';const timeout=setTimeout(()=>reject(Error('server timeout')),10000);child.stdout.on('data',d=>{buffer+=d;const match=buffer.match(/"port":(\d+)/);if(match){clearTimeout(timeout);resolve(match[1]);}});child.once('error',reject);child.once('exit',()=>{clearTimeout(timeout);reject(Error('server exited'));});});
  const base='http://127.0.0.1:'+port;const auth='Basic '+Buffer.from('admin:'+admin).toString('base64');
- assert.equal((await fetch(base+'/admin')).status,401);const page=await fetch(base+'/admin',{headers:{authorization:auth}});assert.equal(page.status,200);assert.equal(page.headers.get('cache-control'),'no-store');const html=await page.text();assert.match(html,/Relatório de entregas/);assert.match(html,/WhatsApp de entrega/);
+ assert.equal((await fetch(base+'/admin')).status,401);const page=await fetch(base+'/admin',{headers:{authorization:auth}});assert.equal(page.status,200);assert.equal(page.headers.get('cache-control'),'no-store');const html=await page.text();assert.match(html,/Relatório de entregas/);assert.match(html,/WhatsApps de entrega/);
  const post=(path,body,headers={})=>fetch(base+path,{method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)});
  assert.equal((await post('/webhooks/wiapy',payload('one'))).status,401);
  assert.equal((await post('/webhooks/wiapy',payload('one'),{authorization:secret})).status,200);

@@ -21,7 +21,7 @@ export function renderDeliveryMessage(products,customer={}){
  const intro=products.length===1?`Olá! Seu acesso à ${products[0].name} já está liberado. 😊`:`Olá! Seus acessos já estão liberados. 😊\n\nVocê adquiriu ${products.length} ferramentas. Abaixo estão os acessos de cada uma:`;
  return `${intro}\n\n${blocks}\n\nQualquer dúvida, é só chamar. Estamos à disposição! 🤝`;
 }
-export function sale(body,matchedProducts,ruleError=null){
+export function sale(body,matchedProducts,ruleError=null,options={}){
  if(body?.payment?.status!=='paid')return null;
  let products=matchedProducts;
  if(products===undefined){const ids=new Set((body.products||[]).map(p=>p.id));if(!ids.has(CARNE))return null;products=DEFAULT_PRODUCTS.filter(p=>p.key==='carne'||(p.key==='proprios'&&ids.has(PROPRIOS)));}
@@ -31,7 +31,7 @@ export function sale(body,matchedProducts,ruleError=null){
  let normalized='',error=null;try{normalized=phone(raw_phone);}catch{error='invalid_phone';}
  const customer={name:String(body.customer?.name||'').slice(0,200),email:String(body.customer?.email||'').slice(0,254)};
  const keys=products.map(p=>p.key);const legacy=keys.length===1&&keys[0]==='carne'?'carne':keys.includes('carne')&&keys.includes('proprios')&&keys.length===2?'combo':'catalog';
- return {id:body.payment.id,phone:normalized,raw_phone,name:customer.name,email:customer.email,error:ruleError||error,kind:legacy,product_keys:JSON.stringify(keys),access_label:products.map(p=>p.name).join(' + '),message_text:renderDeliveryMessage(products,customer)};
+ return {id:options.id||body.payment.id,payment_id:body.payment.id,connection_key:options.connectionKey||'',phone:normalized,raw_phone,name:customer.name,email:customer.email,error:ruleError||error,kind:legacy,product_keys:JSON.stringify(keys),access_label:products.map(p=>p.name).join(' + '),message_text:renderDeliveryMessage(products,customer)};
 }
 export function message(row,cfg){return {messaging_product:'whatsapp',to:row.phone,type:'template',biz_opaque_callback_data:row.id,template:{name:row.kind==='combo'?cfg.combo:cfg.carne,language:{code:'pt_BR'}}};}
 export async function send(row,cfg,fetcher=fetch){
