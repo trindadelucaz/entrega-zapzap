@@ -9,6 +9,7 @@ export async function connection(cfg,fetcher=fetch){
  try{const data=await request(cfg,'/instance/connectionState',undefined,fetcher);return {provider:'evolution',state:data.instance?.state==='open'?'connected':'disconnected'};}catch{return {provider:'evolution',state:'unavailable'};}
 }
 export function text(row,cfg){
+ if(typeof row.message_text==='string'&&row.message_text.trim())return row.message_text;
  const base='Olá! Seu acesso à Calculadora de Precificação de Carnes já está liberado. 😊\n\n🥩 CALCULADORA DE PRECIFICAÇÃO DE CARNES\n\n🎥 Tutoriais e primeiros passos:\nhttps://acessoscalculadora.lovable.app/\n\n🔗 Acessar a Calculadora de Carnes:\nhttps://calculadoradacarne.vercel.app/\n\nPara entrar, utilize o mesmo e-mail informado no momento da compra.';
  if(row.kind==='combo'&&!cfg.productsAccessToken)throw Error('products_token_missing');
  return base+(row.kind==='combo'?'\n\n—————————————\n\n🍢 CALCULADORA DE PRODUTOS PRÓPRIOS\n\nPara calcular produtos como espetinhos, hambúrgueres, temperados e outros.\n\n🔗 Acessar:\nhttps://precocerto-gilt.vercel.app/\n\nToken de acesso: '+cfg.productsAccessToken:'')+'\n\nQualquer dúvida, é só chamar. Estamos à disposição! 🤝';
