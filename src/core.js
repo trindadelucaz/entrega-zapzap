@@ -3,8 +3,8 @@ import {timingSafeEqual,createHmac} from 'node:crypto';
 export const CARNE='6a692b0b3d15a61538172466';
 export const PROPRIOS='6a72457d1b13df5c3c53b2f3';
 export const DEFAULT_PRODUCTS=[
- {key:'carne',name:'Calculadora de Precificação de Carnes',externalIds:[CARNE],active:true,position:10,accessUrl:'https://calculadoradacarne.vercel.app/',tutorialUrl:'https://acessoscalculadora.lovable.app/',accessToken:'',template:'🥩 *CALCULADORA DE PRECIFICAÇÃO DE CARNES*\n\n🎥 *Tutoriais e primeiros passos:*\n{{link_tutoriais}}\n\n🔗 *Acessar a Calculadora de Carnes:*\n{{link_acesso}}\n\nPara entrar, utilize o mesmo e-mail informado no momento da compra.'},
- {key:'proprios',name:'Calculadora de Produtos Próprios',externalIds:[PROPRIOS],active:true,position:20,accessUrl:'https://precocerto-gilt.vercel.app/',tutorialUrl:'',accessToken:'',template:'🍢 *CALCULADORA DE PRODUTOS PRÓPRIOS*\n\nPara calcular produtos produzidos no seu comércio, como espetinhos, hambúrgueres, temperados e outros.\n\n🔗 *Acessar a Calculadora de Produtos Próprios:*\n{{link_acesso}}\n\n*Token de acesso:* {{token_acesso}}'}
+ {key:'carne',name:'Calculadora de Precificação de Carnes',externalIds:[CARNE],active:true,autoWrapper:true,position:10,accessUrl:'https://calculadoradacarne.vercel.app/',tutorialUrl:'https://acessoscalculadora.lovable.app/',accessToken:'',template:'🥩 *CALCULADORA DE PRECIFICAÇÃO DE CARNES*\n\n🎥 *Tutoriais e primeiros passos:*\n{{link_tutoriais}}\n\n🔗 *Acessar a Calculadora de Carnes:*\n{{link_acesso}}\n\nPara entrar, utilize o mesmo e-mail informado no momento da compra.'},
+ {key:'proprios',name:'Calculadora de Produtos Próprios',externalIds:[PROPRIOS],active:true,autoWrapper:true,position:20,accessUrl:'https://precocerto-gilt.vercel.app/',tutorialUrl:'',accessToken:'',template:'🍢 *CALCULADORA DE PRODUTOS PRÓPRIOS*\n\nPara calcular produtos produzidos no seu comércio, como espetinhos, hambúrgueres, temperados e outros.\n\n🔗 *Acessar a Calculadora de Produtos Próprios:*\n{{link_acesso}}\n\n*Token de acesso:* {{token_acesso}}'}
 ];
 export function equal(a,b){const x=Buffer.from(a||''),y=Buffer.from(b||'');return x.length===y.length&&timingSafeEqual(x,y);}
 export function signature(raw,secret,header){return equal('sha256='+createHmac('sha256',secret).update(raw).digest('hex'),header);}
@@ -16,8 +16,10 @@ export function renderBlock(product,customer={}){
 }
 export function renderDeliveryMessage(products,customer={}){
  if(!Array.isArray(products)||!products.length)throw Error('products_required');
+ const blocks=products.map(p=>renderBlock(p,customer)).join('\n\n—————————————\n\n');
+ if(!products.some(p=>p.autoWrapper!==false))return blocks;
  const intro=products.length===1?`Olá! Seu acesso à ${products[0].name} já está liberado. 😊`:`Olá! Seus acessos já estão liberados. 😊\n\nVocê adquiriu ${products.length} ferramentas. Abaixo estão os acessos de cada uma:`;
- return `${intro}\n\n${products.map(p=>renderBlock(p,customer)).join('\n\n—————————————\n\n')}\n\nQualquer dúvida, é só chamar. Estamos à disposição! 🤝`;
+ return `${intro}\n\n${blocks}\n\nQualquer dúvida, é só chamar. Estamos à disposição! 🤝`;
 }
 export function sale(body,matchedProducts){
  if(body?.payment?.status!=='paid')return null;
