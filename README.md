@@ -15,7 +15,7 @@ Backend Node 24 com SQLite e painel privado de entregas. Sem dependências npm e
 
 ## Painel
 
-Abra `https://SEU-DOMINIO/admin`. Usuário: `admin`. Senha: valor de `ADMIN_TOKEN` (gere um segredo forte exclusivo, mínimo 24 caracteres). O navegador solicita a senha; use HTTPS em produção.
+Abra `https://SEU-DOMINIO/admin`. A tela do **Entrega Zap** solicita a senha definida em `ADMIN_TOKEN` (gere um segredo forte exclusivo, mínimo 24 caracteres). A sessão usa cookie `HttpOnly`, `SameSite=Strict` e `Secure` em HTTPS; o painel também oferece a opção de manter o acesso por sete dias e um botão para sair. Requisições administrativas por API continuam podendo usar `Authorization: Bearer ADMIN_TOKEN`.
 
 O relatório exibe nome, telefone, e-mail, ferramenta, status, horário, tentativas e código da falha. Tem busca, filtros de status/período, páginas de 50 registros e atualização a cada 30 segundos. “Precisam de atenção” reúne falhas/resultados incertos ainda não resolvidos. Marcar como resolvido registra atendimento manual e **não muda o status de entrega nem reenvia mensagem**.
 

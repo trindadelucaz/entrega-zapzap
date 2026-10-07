@@ -1,7 +1,7 @@
 import {whatsappDetails,connectWhatsapp,logoutWhatsapp,createWhatsappInstance,statuses,suggestPhone} from './evolution.js';
 import http from 'node:http';
 import {readFileSync} from 'node:fs';
-import {createHash,randomBytes} from 'node:crypto';
+import {createHash,createHmac,randomBytes} from 'node:crypto';
 import {equal,signature,sale,send,phone,renderDeliveryMessage} from './core.js';
 import {store} from './store.js';
 const env=process.env;
@@ -21,21 +21,45 @@ const connectionCfg=connection=>({...cfg,instance:connection.instanceName});
 const deliveryCfg=row=>{const connection=st.connection(row.connection_key)||st.defaultConnection();return connection?connectionCfg(connection):cfg;};
 async function inspectConnection(connection,force=false){if(!connection)return {provider:'evolution',state:'not_configured'};if(!force&&connection.checkedAt&&Date.now()-connection.checkedAt<30000)return safeConnection(connection);const info=await whatsappDetails(connectionCfg(connection));return safeConnection(st.observeWhatsappConnection(connection.key,info));}
 async function connectionInfo(force=false){if(connectionPending)return connectionPending;if(force||Date.now()-connectionChecked>30000||!connectionCache){connectionPending=inspectConnection(st.defaultConnection(),force).then(info=>{connectionCache=st.observeConnection(info);connectionChecked=Date.now();return info;}).finally(()=>{connectionPending=null;});return connectionPending;}return connectionCache;}
-const assets=Object.fromEntries(['index.html','style.css','app.js'].map(name=>[name,readFileSync(new URL('./public/'+name,import.meta.url))]));
+const assets=Object.fromEntries(['index.html','style.css','app.js','login.html','login.css','login.js'].map(name=>[name,readFileSync(new URL('./public/'+name,import.meta.url))]));
 const st=store(env.DB_PATH||'./data/deliveries.sqlite',{productsAccessToken:cfg.productsAccessToken,defaultConnection:cfg.provider==='evolution'&&cfg.instance?{key:'principal',name:env.EVOLUTION_CONNECTION_NAME||'Entregas Açougue',instanceName:cfg.instance,webhookKeyHash:hash(cfg.evolutionKey)}:null});
 const reply=(res,status,data)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(data));};
 async function body(req){let total=0;const parts=[];for await(const chunk of req){total+=chunk.length;if(total>262144)throw Error('too_large');parts.push(chunk);}return Buffer.concat(parts);}
+const cookieValue=(req,name)=>{for(const part of String(req.headers.cookie||'').split(';')){const [key,...value]=part.trim().split('=');if(key===name)return decodeURIComponent(value.join('='));}return '';};
+const revokedSessions=new Map();
+const sessionSignature=payload=>createHmac('sha256',env.ADMIN_TOKEN).update('entrega-zap-admin-session-v1:'+payload).digest('base64url');
+const createSessionToken=remember=>{const payload=`${Date.now()+(remember?604800000:43200000)}.${randomBytes(24).toString('base64url')}`;return `${payload}.${sessionSignature(payload)}`;};
+function validSession(token){const parts=String(token||'').split('.');if(parts.length!==3)return false;const payload=`${parts[0]}.${parts[1]}`,expires=Number(parts[0]),tokenHash=hash(token),now=Date.now();for(const [key,value] of revokedSessions)if(value<=now)revokedSessions.delete(key);return Number.isSafeInteger(expires)&&expires>now&&expires<=now+604900000&&!revokedSessions.has(tokenHash)&&equal(parts[2],sessionSignature(payload));}
+const authorized=req=>validSession(cookieValue(req,'entrega_zap_session'))||equal(req.headers.authorization,`Bearer ${env.ADMIN_TOKEN}`);
+const secureRequest=req=>String(req.headers['x-forwarded-proto']||'').split(',')[0].trim()==='https'||req.socket.encrypted===true;
+const sessionCookie=(req,token,remember=false)=>`entrega_zap_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict${secureRequest(req)?'; Secure':''}${remember?'; Max-Age=604800':''}`;
+const clearSessionCookie=req=>`entrega_zap_session=; Path=/; HttpOnly; SameSite=Strict${secureRequest(req)?'; Secure':''}; Max-Age=0`;
+const redirect=(res,location)=>{res.writeHead(302,{location});res.end();};
+const loginAttempts=new Map();
+const loginAddress=req=>String(req.headers['cf-connecting-ip']||req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').split(',')[0].trim().slice(0,80);
+function loginLimit(req,success=false){const key=loginAddress(req),now=Date.now(),current=loginAttempts.get(key);if(success){loginAttempts.delete(key);return {allowed:true};}const recent=current&&now-current.started<600000?current:{started:now,count:0};if(recent.count>=6)return {allowed:false,retryAfter:Math.max(1,Math.ceil((recent.started+600000-now)/1000))};recent.count++;loginAttempts.set(key,recent);return {allowed:true,remaining:Math.max(0,6-recent.count)};}
 const publicOrigin=req=>{if(env.PUBLIC_URL&&/^https:\/\/[A-Za-z0-9.-]+(?::\d+)?$/.test(env.PUBLIC_URL.replace(/\/$/,'')))return env.PUBLIC_URL.replace(/\/$/,'');const host=String(req.headers['x-forwarded-host']||req.headers.host||'').split(',')[0].trim();const proto=String(req.headers['x-forwarded-proto']||'https').split(',')[0].trim();if(!/^[A-Za-z0-9.-]+(?::\d+)?$/.test(host)||!['http','https'].includes(proto))throw Error('invalid_origin');return `${proto}://${host}`;};
 const connectionKey=name=>{const base=String(name||'whatsapp').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,32)||'whatsapp';return `${base}_${randomBytes(3).toString('hex')}`;};
 const server=http.createServer(async(req,res)=>{try{
  res.setHeader('cache-control','no-store');res.setHeader('x-content-type-options','nosniff');res.setHeader('referrer-policy','no-referrer');
- res.setHeader('content-security-policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+ res.setHeader('content-security-policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://res.cloudinary.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
  const url=new URL(req.url,'http://localhost');
  if(req.method==='GET'&&url.pathname==='/health'){st.db.prepare('SELECT 1').get();return reply(res,200,{ok:true,mode:mode()});}
+ if(req.method==='GET'&&url.pathname==='/')return redirect(res,'/admin');
+ if(req.method==='GET'&&url.pathname==='/login'){
+  if(authorized(req))return redirect(res,'/admin');
+  res.writeHead(200,{'content-type':'text/html; charset=utf-8'});return res.end(assets['login.html']);}
+ if(req.method==='GET'&&['/login.css','/login.js'].includes(url.pathname)){const name=url.pathname.slice(1);res.writeHead(200,{'content-type':name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'});return res.end(assets[name]);}
+ if(req.method==='POST'&&url.pathname==='/auth/login'){
+  const limit=loginLimit(req);if(!limit.allowed){res.setHeader('retry-after',String(limit.retryAfter));return reply(res,429,{error:'too_many_attempts',retryAfter:limit.retryAfter});}
+  const p=JSON.parse((await body(req)).toString());if(typeof p.password!=='string'||!equal(p.password,env.ADMIN_TOKEN))return reply(res,401,{error:'invalid_credentials',remaining:limit.remaining});
+  loginLimit(req,true);res.setHeader('set-cookie',sessionCookie(req,createSessionToken(p.remember===true),p.remember===true));return reply(res,200,{ok:true});}
+ if(req.method==='POST'&&url.pathname==='/auth/logout'){
+  if(!authorized(req))return reply(res,401,{error:'unauthorized'});if(req.headers['x-admin-action']!=='logout')return reply(res,403,{error:'invalid_action'});
+  const token=cookieValue(req,'entrega_zap_session'),expires=Number(token.split('.')[0]);if(token&&Number.isFinite(expires))revokedSessions.set(hash(token),expires);
+  res.setHeader('set-cookie',clearSessionCookie(req));return reply(res,200,{ok:true});}
  if(url.pathname==='/admin'||url.pathname.startsWith('/admin/')){
- const auth=req.headers.authorization||'';
- const basic='Basic '+Buffer.from('admin:'+env.ADMIN_TOKEN).toString('base64');
- if(!equal(auth,basic)&&!equal(auth,`Bearer ${env.ADMIN_TOKEN}`)){res.setHeader('www-authenticate','Basic realm="Relatorio de entregas", charset="UTF-8"');return reply(res,401,{error:'unauthorized'});}
+ if(!authorized(req)){if(req.method==='GET'&&(url.pathname==='/admin'||url.pathname==='/admin/'))return redirect(res,'/login?next=%2Fadmin');return reply(res,401,{error:'unauthorized'});}
  if(req.method==='GET'&&(url.pathname==='/admin'||url.pathname==='/admin/')){res.writeHead(200,{'content-type':'text/html; charset=utf-8'});return res.end(assets['index.html']);}
  const asset=url.pathname.slice('/admin/'.length);
  if(req.method==='GET'&&['style.css','app.js'].includes(asset)){res.writeHead(200,{'content-type':asset.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'});return res.end(assets[asset]);}
