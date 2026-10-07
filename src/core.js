@@ -3,8 +3,8 @@ import {timingSafeEqual,createHmac} from 'node:crypto';
 export const CARNE='6a692b0b3d15a61538172466';
 export const PROPRIOS='6a72457d1b13df5c3c53b2f3';
 export const DEFAULT_PRODUCTS=[
- {key:'carne',name:'Calculadora de Precificação de Carnes',externalIds:[CARNE],active:true,autoWrapper:true,position:10,accessUrl:'https://calculadoradacarne.vercel.app/',tutorialUrl:'https://acessoscalculadora.lovable.app/',accessToken:'',template:'🥩 *CALCULADORA DE PRECIFICAÇÃO DE CARNES*\n\n🎥 *Tutoriais e primeiros passos:*\n{{link_tutoriais}}\n\n🔗 *Acessar a Calculadora de Carnes:*\n{{link_acesso}}\n\nPara entrar, utilize o mesmo e-mail informado no momento da compra.'},
- {key:'proprios',name:'Calculadora de Produtos Próprios',externalIds:[PROPRIOS],active:true,autoWrapper:true,position:20,accessUrl:'https://precocerto-gilt.vercel.app/',tutorialUrl:'',accessToken:'',template:'🍢 *CALCULADORA DE PRODUTOS PRÓPRIOS*\n\nPara calcular produtos produzidos no seu comércio, como espetinhos, hambúrgueres, temperados e outros.\n\n🔗 *Acessar a Calculadora de Produtos Próprios:*\n{{link_acesso}}\n\n*Token de acesso:* {{token_acesso}}'}
+ {key:'carne',name:'Calculadora de Precificação de Carnes',externalIds:[CARNE],active:true,autoWrapper:true,productType:'primary',requiresKey:'',position:10,accessUrl:'https://calculadoradacarne.vercel.app/',tutorialUrl:'https://acessoscalculadora.lovable.app/',accessToken:'',template:'🥩 *CALCULADORA DE PRECIFICAÇÃO DE CARNES*\n\n🎥 *Tutoriais e primeiros passos:*\n{{link_tutoriais}}\n\n🔗 *Acessar a Calculadora de Carnes:*\n{{link_acesso}}\n\nPara entrar, utilize o mesmo e-mail informado no momento da compra.'},
+ {key:'proprios',name:'Calculadora de Produtos Próprios',externalIds:[PROPRIOS],active:true,autoWrapper:true,productType:'addon',requiresKey:'carne',position:20,accessUrl:'https://precocerto-gilt.vercel.app/',tutorialUrl:'',accessToken:'',template:'🍢 *CALCULADORA DE PRODUTOS PRÓPRIOS*\n\nPara calcular produtos produzidos no seu comércio, como espetinhos, hambúrgueres, temperados e outros.\n\n🔗 *Acessar a Calculadora de Produtos Próprios:*\n{{link_acesso}}\n\n*Token de acesso:* {{token_acesso}}'}
 ];
 export function equal(a,b){const x=Buffer.from(a||''),y=Buffer.from(b||'');return x.length===y.length&&timingSafeEqual(x,y);}
 export function signature(raw,secret,header){return equal('sha256='+createHmac('sha256',secret).update(raw).digest('hex'),header);}
@@ -21,7 +21,7 @@ export function renderDeliveryMessage(products,customer={}){
  const intro=products.length===1?`Olá! Seu acesso à ${products[0].name} já está liberado. 😊`:`Olá! Seus acessos já estão liberados. 😊\n\nVocê adquiriu ${products.length} ferramentas. Abaixo estão os acessos de cada uma:`;
  return `${intro}\n\n${blocks}\n\nQualquer dúvida, é só chamar. Estamos à disposição! 🤝`;
 }
-export function sale(body,matchedProducts){
+export function sale(body,matchedProducts,ruleError=null){
  if(body?.payment?.status!=='paid')return null;
  let products=matchedProducts;
  if(products===undefined){const ids=new Set((body.products||[]).map(p=>p.id));if(!ids.has(CARNE))return null;products=DEFAULT_PRODUCTS.filter(p=>p.key==='carne'||(p.key==='proprios'&&ids.has(PROPRIOS)));}
@@ -31,7 +31,7 @@ export function sale(body,matchedProducts){
  let normalized='',error=null;try{normalized=phone(raw_phone);}catch{error='invalid_phone';}
  const customer={name:String(body.customer?.name||'').slice(0,200),email:String(body.customer?.email||'').slice(0,254)};
  const keys=products.map(p=>p.key);const legacy=keys.length===1&&keys[0]==='carne'?'carne':keys.includes('carne')&&keys.includes('proprios')&&keys.length===2?'combo':'catalog';
- return {id:body.payment.id,phone:normalized,raw_phone,name:customer.name,email:customer.email,error,kind:legacy,product_keys:JSON.stringify(keys),access_label:products.map(p=>p.name).join(' + '),message_text:renderDeliveryMessage(products,customer)};
+ return {id:body.payment.id,phone:normalized,raw_phone,name:customer.name,email:customer.email,error:ruleError||error,kind:legacy,product_keys:JSON.stringify(keys),access_label:products.map(p=>p.name).join(' + '),message_text:renderDeliveryMessage(products,customer)};
 }
 export function message(row,cfg){return {messaging_product:'whatsapp',to:row.phone,type:'template',biz_opaque_callback_data:row.id,template:{name:row.kind==='combo'?cfg.combo:cfg.carne,language:{code:'pt_BR'}}};}
 export async function send(row,cfg,fetcher=fetch){

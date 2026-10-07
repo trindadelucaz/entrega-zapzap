@@ -35,7 +35,9 @@ const server=http.createServer(async(req,res)=>{try{
  if(url.pathname==='/admin/products'&&req.method==='GET')return reply(res,200,{rows:st.products(true)});
  if(url.pathname==='/admin/products'&&req.method==='POST'){
   if(req.headers['x-admin-action']!=='save-product')return reply(res,403,{error:'invalid_action'});
-  const p=JSON.parse((await body(req)).toString());try{return reply(res,200,{product:st.saveProduct(p)});}catch(e){const known=['invalid_product','invalid_variable','invalid_url','duplicate_external_id','state_changed'];return reply(res,known.includes(e.message)?409:500,{error:known.includes(e.message)?e.message:'internal_error'});}}
+  const p=JSON.parse((await body(req)).toString());try{return reply(res,200,{product:st.saveProduct(p)});}catch(e){const known=['invalid_product','invalid_variable','invalid_url','duplicate_external_id','state_changed','invalid_parent','product_has_dependents','inactive_parent','product_has_active_dependents'];return reply(res,known.includes(e.message)?409:500,{error:known.includes(e.message)?e.message:'internal_error'});}}
+ if(url.pathname==='/admin/products/toggle'&&req.method==='POST'){
+  if(req.headers['x-admin-action']!=='toggle-product')return reply(res,403,{error:'invalid_action'});const p=JSON.parse((await body(req)).toString());if(typeof p.key!=='string'||typeof p.active!=='boolean'||!Number.isSafeInteger(p.expectedUpdated))return reply(res,400,{error:'invalid_payload'});try{return reply(res,200,{product:st.toggleProduct(p.key,p.active,p.expectedUpdated)});}catch(e){const known=['not_found','state_changed','inactive_parent','product_has_active_dependents'];return reply(res,e.message==='not_found'?404:409,{error:known.includes(e.message)?e.message:'internal_error'});}}
  if(url.pathname==='/admin/products/preview'&&req.method==='POST'){
   if(req.headers['x-admin-action']!=='preview-product')return reply(res,403,{error:'invalid_action'});
   const p=JSON.parse((await body(req)).toString());try{const product={name:String(p.name||'Produto de teste'),accessUrl:String(p.accessUrl||''),tutorialUrl:String(p.tutorialUrl||''),accessToken:String(p.accessToken||''),template:String(p.template||''),autoWrapper:p.autoWrapper===true};return reply(res,200,{text:renderDeliveryMessage([product],{name:'Cliente Teste',email:'cliente@exemplo.com'})});}catch{return reply(res,400,{error:'invalid_product'});}}
@@ -80,7 +82,7 @@ const server=http.createServer(async(req,res)=>{try{
  if(url.pathname==='/webhooks/wiapy'&&req.method==='POST'){
  if(!equal(req.headers.authorization,env.WIAPY_SECRET))return reply(res,401,{error:'unauthorized'});
   if(String(req.headers['x-wiapy-test']||'').toLowerCase()==='true')return reply(res,200,{ignored:true,test:true});
-  const payload=JSON.parse((await body(req)).toString());const row=sale(payload,st.matchProducts(payload));
+  const payload=JSON.parse((await body(req)).toString());const resolved=st.resolveProducts(payload);const row=sale(payload,resolved.matched,resolved.missing.length?'missing_required_product':null);
  if(!row)return reply(res,200,{ignored:true});const inserted=st.add(row);return reply(res,200,{queued:!!inserted,duplicate:!inserted});}
  if(url.pathname==='/webhooks/evolution'&&req.method==='POST'){
  const p=JSON.parse((await body(req)).toString());

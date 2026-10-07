@@ -27,9 +27,12 @@ A aba **Produtos** permite cadastrar e editar uma entrega sem alterar o backend:
 - um ou mais IDs recebidos em `products` ou `checkout.orderbump` da Wiapy;
 - link de acesso, tutoriais e token compartilhado do produto;
 - bloco da mensagem com prévia;
-- ordem e situação ativa/pausada.
+- tipo principal ou complemento e, para complementos, o produto principal obrigatório;
+- ordem e situação ativa/inativa. A situação também pode ser alterada diretamente pela chavinha no card.
 
 Variáveis aceitas: `{{nome_cliente}}`, `{{email_cliente}}`, `{{nome_produto}}`, `{{link_acesso}}`, `{{link_tutoriais}}` e `{{token_acesso}}`. IDs não podem pertencer a mais de um produto. Produto pausado deixa de ser reconhecido em novas compras, mas o histórico e as mensagens já gravadas permanecem intactos.
+
+Um complemento ativo exige que o produto principal também esteja ativo. O painel impede desligar o principal antes dos complementos. Se a Wiapy enviar um complemento sem o principal obrigatório, a compra é registrada como falha para análise e nenhuma mensagem é enviada. **Calculadora de Produtos Próprios** é migrada automaticamente como complemento de **Calculadora de Precificação de Carnes**.
 
 Cada compra salva uma cópia da mensagem montada no momento do recebimento. Alterar um produto posteriormente não muda reenvios ou registros antigos. Antes de ativar uma nova integração, selecione o produto em **Testar uma entrega** e envie para um telefone controlado.
 
