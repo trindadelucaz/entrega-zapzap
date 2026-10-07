@@ -1,13 +1,14 @@
 # Entrega Wiapy → WhatsApp
 
-Backend Node 24 com SQLite e painel privado de entregas. Sem dependências npm externas. Testado localmente com dados fictícios; ainda não validado com mensagens reais da Meta. Os envios começam **pausados** (`DELIVERY_ENABLED=false`).
+Backend Node 24 com SQLite e painel privado de entregas. Sem dependências npm externas. Os envios começam **pausados** (`DELIVERY_ENABLED=false`).
 
 ## O que faz
 
 - Recebe compras pagas da Wiapy e grava antes de responder, sem aguardar o envio da Meta.
 - Usa o ID do pagamento para evitar duplicação do mesmo pedido.
-- Carnes: produto `6a692b0b3d15a61538172466`; Carnes + Produtos Próprios: também contém `6a72457d1b13df5c3c53b2f3`.
-- Bump WhatsApp e outros bumps não mudam a mensagem de Carnes. Produtos Próprios sozinho é ignorado.
+- Mantém um catálogo configurável de produtos, IDs Wiapy, links, tokens e blocos de mensagem.
+- Combina automaticamente todos os produtos reconhecidos na mesma compra em uma única mensagem.
+- Os produtos atuais de Carnes e Produtos Próprios são criados automaticamente na primeira inicialização, preservando o comportamento anterior.
 - Telefone inválido vira falha no relatório, com nome, e-mail e telefone original para atendimento manual.
 - Não cria usuários no Lovable. Mantenha o webhook atual que libera o acesso.
 - Não envia alertas por e-mail e não realiza reenvio manual pelo painel.
@@ -17,6 +18,20 @@ Backend Node 24 com SQLite e painel privado de entregas. Sem dependências npm e
 Abra `https://SEU-DOMINIO/admin`. Usuário: `admin`. Senha: valor de `ADMIN_TOKEN` (gere um segredo forte exclusivo, mínimo 24 caracteres). O navegador solicita a senha; use HTTPS em produção.
 
 O relatório exibe nome, telefone, e-mail, ferramenta, status, horário, tentativas e código da falha. Tem busca, filtros de status/período, páginas de 50 registros e atualização a cada 30 segundos. “Precisam de atenção” reúne falhas/resultados incertos ainda não resolvidos. Marcar como resolvido registra atendimento manual e **não muda o status de entrega nem reenvia mensagem**.
+
+### Produtos
+
+A aba **Produtos** permite cadastrar e editar uma entrega sem alterar o backend:
+
+- nome e código interno;
+- um ou mais IDs recebidos em `products` ou `checkout.orderbump` da Wiapy;
+- link de acesso, tutoriais e token compartilhado do produto;
+- bloco da mensagem com prévia;
+- ordem e situação ativa/pausada.
+
+Variáveis aceitas: `{{nome_cliente}}`, `{{email_cliente}}`, `{{nome_produto}}`, `{{link_acesso}}`, `{{link_tutoriais}}` e `{{token_acesso}}`. IDs não podem pertencer a mais de um produto. Produto pausado deixa de ser reconhecido em novas compras, mas o histórico e as mensagens já gravadas permanecem intactos.
+
+Cada compra salva uma cópia da mensagem montada no momento do recebimento. Alterar um produto posteriormente não muda reenvios ou registros antigos. Antes de ativar uma nova integração, selecione o produto em **Testar uma entrega** e envie para um telefone controlado.
 
 “Aceita pela Meta” e “Enviada” não confirmam entrega. Só “Entregue” ou “Lida” confirmam. O erro 131026 não prova que o telefone não tem WhatsApp: há outras causas possíveis. O painel mostra essa limitação.
 
@@ -49,6 +64,8 @@ Adicione **uma nova integração**, preservando a integração Lovable de criaç
 - URL: `https://SEU-DOMINIO/webhooks/wiapy`.
 - Header `authorization`: valor exato de `WIAPY_SECRET`, sem `Bearer`.
 - Corpo: objeto de venda (conteúdo de `data` nos logs), não o envelope do log.
+
+Eventos enviados pelo botão de teste da Wiapy com `x-wiapy-test: true` são ignorados de propósito. Para uma nova oferta, copie do payload real o ID presente em `products[].id` ou `checkout.orderbump[].id`, cadastre-o na aba **Produtos**, teste a mensagem e somente depois ative a integração.
 
 Use segredo novo, diferente do Lovable. Não reutilize credenciais compartilhadas em conversa. Não grave CPF, tracking ou payload completo: o banco armazena apenas os campos necessários ao envio e atendimento.
 

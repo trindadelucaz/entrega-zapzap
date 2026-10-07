@@ -1,7 +1,7 @@
 import {connection,statuses,suggestPhone} from './evolution.js';
 import http from 'node:http';
 import {readFileSync} from 'node:fs';
-import {equal,signature,sale,send,phone} from './core.js';
+import {equal,signature,sale,send,phone,renderDeliveryMessage} from './core.js';
 import {store} from './store.js';
 const env=process.env;
 for(const key of ['WIAPY_SECRET','ADMIN_TOKEN'])if(!env[key]||env[key].length<24)throw Error(`Configure ${key} com pelo menos 24 caracteres`);
@@ -16,7 +16,7 @@ const mode=()=>!enabled?'paused':cfg.dry?'simulation':'live';
 let connectionCache;let connectionChecked=0;let connectionPending;
 async function connectionInfo(){if(connectionPending)return connectionPending;if(Date.now()-connectionChecked>30000||!connectionCache){connectionPending=connection(cfg).then(info=>{connectionCache=st.observeConnection(info);connectionChecked=Date.now();return connectionCache;}).finally(()=>{connectionPending=null;});return connectionPending;}return connectionCache;}
 const assets=Object.fromEntries(['index.html','style.css','app.js'].map(name=>[name,readFileSync(new URL('./public/'+name,import.meta.url))]));
-const st=store(env.DB_PATH||'./data/deliveries.sqlite');
+const st=store(env.DB_PATH||'./data/deliveries.sqlite',{productsAccessToken:cfg.productsAccessToken});
 const reply=(res,status,data)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(data));};
 async function body(req){let total=0;const parts=[];for await(const chunk of req){total+=chunk.length;if(total>262144)throw Error('too_large');parts.push(chunk);}return Buffer.concat(parts);}
 const server=http.createServer(async(req,res)=>{try{
@@ -32,6 +32,13 @@ const server=http.createServer(async(req,res)=>{try{
  const asset=url.pathname.slice('/admin/'.length);
  if(req.method==='GET'&&['style.css','app.js'].includes(asset)){res.writeHead(200,{'content-type':asset.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'});return res.end(assets[asset]);}
  if(url.pathname==='/admin/connection'&&req.method==='GET')return reply(res,200,await connectionInfo());
+ if(url.pathname==='/admin/products'&&req.method==='GET')return reply(res,200,{rows:st.products(true)});
+ if(url.pathname==='/admin/products'&&req.method==='POST'){
+  if(req.headers['x-admin-action']!=='save-product')return reply(res,403,{error:'invalid_action'});
+  const p=JSON.parse((await body(req)).toString());try{return reply(res,200,{product:st.saveProduct(p)});}catch(e){const known=['invalid_product','invalid_variable','invalid_url','duplicate_external_id','state_changed'];return reply(res,known.includes(e.message)?409:500,{error:known.includes(e.message)?e.message:'internal_error'});}}
+ if(url.pathname==='/admin/products/preview'&&req.method==='POST'){
+  if(req.headers['x-admin-action']!=='preview-product')return reply(res,403,{error:'invalid_action'});
+  const p=JSON.parse((await body(req)).toString());try{const product={name:String(p.name||'Produto de teste'),accessUrl:String(p.accessUrl||''),tutorialUrl:String(p.tutorialUrl||''),accessToken:String(p.accessToken||''),template:String(p.template||'')};return reply(res,200,{text:renderDeliveryMessage([product],{name:'Cliente Teste',email:'cliente@exemplo.com'})});}catch{return reply(res,400,{error:'invalid_product'});}}
  if(url.pathname==='/admin/deliveries'&&req.method==='GET'){
  const filters={q:url.searchParams.get('q'),state:url.searchParams.get('state'),source:url.searchParams.get('source')||'sales',page:Math.floor(Number(url.searchParams.get('page')))||1};
  for(const k of ['from','to']){const d=url.searchParams.get(k);if(d){if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return reply(res,400,{error:'invalid_date'});const ms=Date.parse(d+'T00:00:00-03:00');if(!Number.isFinite(ms))return reply(res,400,{error:'invalid_date'});filters[k]=ms+(k==='to'?86400000:0);}}
@@ -53,10 +60,10 @@ const server=http.createServer(async(req,res)=>{try{
  if(req.headers['x-admin-action']!=='test')return reply(res,403,{error:'invalid_action'});
  if(cfg.provider!=='evolution'||!cfg.evolutionUrl||!cfg.instance||!cfg.evolutionKey)return reply(res,409,{error:'evolution_not_configured'});
  const p=JSON.parse((await body(req)).toString());
- if(!['carne','combo'].includes(p.kind)||typeof p.requestId!=='string'||!/^[-a-f0-9]{36}$/.test(p.requestId))return reply(res,400,{error:'invalid_payload'});
- if(p.kind==='combo'&&!cfg.productsAccessToken)return reply(res,409,{error:'products_token_missing'});
+  if(typeof p.requestId!=='string'||!/^[-a-f0-9]{36}$/.test(p.requestId))return reply(res,400,{error:'invalid_payload'});
+  const keys=Array.isArray(p.productKeys)?p.productKeys:(p.kind==='combo'?['carne','proprios']:p.kind==='carne'?['carne']:[]);const products=st.productsByKeys(keys);if(!products.length||products.length!==new Set(keys).size)return reply(res,400,{error:'invalid_product'});
  let normalized='',phoneError=null;try{normalized=phone(p.phone);}catch{phoneError='invalid_phone';}
- const r={id:'test:'+p.requestId,phone:normalized,error:phoneError,raw_phone:String(p.phone||'').slice(0,80),name:'Teste de entrega',email:'',kind:p.kind,attempts:0};
+  const customer={name:'Teste de entrega',email:''};const r={id:'test:'+p.requestId,phone:normalized,error:phoneError,raw_phone:String(p.phone||'').slice(0,80),...customer,kind:products.length>1?'catalog':products[0].key,product_keys:JSON.stringify(products.map(x=>x.key)),access_label:products.map(x=>x.name).join(' + '),message_text:renderDeliveryMessage(products,customer),attempts:0};
  if(!st.addTest(r))return reply(res,200,{duplicate:true,id:r.id});
  if(r.error)return reply(res,200,{id:r.id,state:'failed',error:r.error});
  const result=await send(r,{...cfg,dry:false});
@@ -72,7 +79,8 @@ const server=http.createServer(async(req,res)=>{try{
  if(env.META_VERIFY_TOKEN&&url.searchParams.get('hub.mode')==='subscribe'&&equal(url.searchParams.get('hub.verify_token'),env.META_VERIFY_TOKEN)){res.writeHead(200,{'content-type':'text/plain'});return res.end(url.searchParams.get('hub.challenge')||'');}return reply(res,403,{error:'verification_failed'});}
  if(url.pathname==='/webhooks/wiapy'&&req.method==='POST'){
  if(!equal(req.headers.authorization,env.WIAPY_SECRET))return reply(res,401,{error:'unauthorized'});
- const payload=JSON.parse((await body(req)).toString());const row=sale(payload);
+  if(String(req.headers['x-wiapy-test']||'').toLowerCase()==='true')return reply(res,200,{ignored:true,test:true});
+  const payload=JSON.parse((await body(req)).toString());const row=sale(payload,st.matchProducts(payload));
  if(!row)return reply(res,200,{ignored:true});const inserted=st.add(row);return reply(res,200,{queued:!!inserted,duplicate:!inserted});}
  if(url.pathname==='/webhooks/evolution'&&req.method==='POST'){
  const p=JSON.parse((await body(req)).toString());
