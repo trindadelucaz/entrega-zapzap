@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {store} from '../src/store.js';
 import {suggestPhone} from '../src/evolution.js';
 const sale={id:'purchase',phone:'551198765432',raw_phone:'(11) 9876-5432',name:'Comprador fictício',email:'test@example.com',kind:'carne'};
@@ -25,4 +28,11 @@ test('sugere nono dígito somente se original não existe e candidato existe',as
  numbers.length=0;assert.equal((await suggestPhone('5511998765432',cfg,mock)).suggestion,null);assert.equal(numbers.length,0);
  assert.equal((await suggestPhone(sale.phone,cfg,async()=>({ok:true,json:async()=>[{exists:true}]}))).originalExists,true);
  assert.equal((await suggestPhone(sale.phone,cfg,async()=>({ok:true,json:async()=>[{exists:false}]}))).suggestion,null);
+});
+test('limite de login e revogação de sessão sobrevivem a reinício',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'entrega-zap-security-'));const path=join(dir,'data.sqlite');const address='203.0.113.10';const now=1_800_000_000_000;
+ let st=store(path);for(let i=0;i<6;i++)assert.equal(st.loginAttempt(address,false,now+i).allowed,true);assert.equal(st.loginAttempt(address,false,now+7).allowed,false);
+ assert.equal(st.revokeSession('session-hash',now+60_000,now),true);st.db.close();
+ st=store(path);assert.equal(st.loginAttempt(address,false,now+8).allowed,false);assert.equal(st.sessionRevoked('session-hash',now+1),true);
+ assert.equal(st.loginAttempt(address,true,now+9).allowed,true);assert.equal(st.loginAttempt(address,false,now+10).allowed,true);assert.equal(st.sessionRevoked('session-hash',now+60_001),false);st.db.close();rmSync(dir,{recursive:true,force:true});
 });
