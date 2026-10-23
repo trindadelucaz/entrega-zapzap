@@ -15,7 +15,9 @@ export function store(path,options={}){
  CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
  CREATE TABLE IF NOT EXISTS products(key TEXT PRIMARY KEY,name TEXT NOT NULL,external_ids TEXT NOT NULL DEFAULT '[]',access_url TEXT NOT NULL DEFAULT '',tutorial_url TEXT NOT NULL DEFAULT '',access_token TEXT NOT NULL DEFAULT '',template TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,auto_wrapper INTEGER NOT NULL DEFAULT 0,product_type TEXT NOT NULL DEFAULT 'primary',requires_key TEXT NOT NULL DEFAULT '',connection_key TEXT NOT NULL DEFAULT '',position INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL,updated INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS whatsapp_connections(key TEXT PRIMARY KEY,name TEXT NOT NULL,instance_name TEXT NOT NULL UNIQUE,phone TEXT NOT NULL DEFAULT '',profile_name TEXT NOT NULL DEFAULT '',active INTEGER NOT NULL DEFAULT 1,is_default INTEGER NOT NULL DEFAULT 0,webhook_key_hash TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'not_checked',checked_at INTEGER,disconnected_since INTEGER,last_connected_at INTEGER,created INTEGER NOT NULL,updated INTEGER NOT NULL);
- CREATE TABLE IF NOT EXISTS orders(payment_id TEXT PRIMARY KEY,created INTEGER NOT NULL);`);
+ CREATE TABLE IF NOT EXISTS orders(payment_id TEXT PRIMARY KEY,created INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS login_attempts(address TEXT PRIMARY KEY,started INTEGER NOT NULL,count INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS revoked_sessions(token_hash TEXT PRIMARY KEY,expires INTEGER NOT NULL);`);
  const eventColumns=new Set(db.prepare('PRAGMA table_info(events)').all().map(c=>c.name));
  if(!eventColumns.has('error'))db.exec('ALTER TABLE events ADD COLUMN error TEXT');
  const columns=new Set(db.prepare('PRAGMA table_info(deliveries)').all().map(c=>c.name));
@@ -30,9 +32,26 @@ export function store(path,options={}){
  if(options.productsAccessToken)db.prepare("UPDATE products SET access_token=? WHERE key='proprios' AND access_token='' ").run(options.productsAccessToken);
  db.exec("UPDATE deliveries SET product_keys=CASE WHEN kind='combo' THEN '[\"carne\",\"proprios\"]' ELSE '[\"carne\"]' END WHERE product_keys IS NULL; UPDATE deliveries SET access_label=CASE WHEN kind='combo' THEN 'Calculadora de Precificação de Carnes + Calculadora de Produtos Próprios' ELSE 'Calculadora de Precificação de Carnes' END WHERE access_label IS NULL; UPDATE deliveries SET payment_id=id WHERE payment_id IS NULL;");
  db.exec("INSERT OR IGNORE INTO orders(payment_id,created) SELECT payment_id,created FROM deliveries WHERE id NOT LIKE 'test:%' AND payment_id IS NOT NULL;");
- db.exec(`CREATE INDEX IF NOT EXISTS deliveries_mid ON deliveries(mid); CREATE INDEX IF NOT EXISTS deliveries_created ON deliveries(created);
+ db.exec(`CREATE INDEX IF NOT EXISTS deliveries_mid ON deliveries(mid); CREATE INDEX IF NOT EXISTS deliveries_created ON deliveries(created); CREATE INDEX IF NOT EXISTS revoked_sessions_expires ON revoked_sessions(expires);
  UPDATE deliveries SET state='uncertain',error='restart_during_send',updated=${Date.now()} WHERE state='sending';`);
  return {db,
+ loginAttempt(address,success=false,now=Date.now()){
+  db.prepare('DELETE FROM login_attempts WHERE started<=?').run(now-600000);
+  if(success){db.prepare('DELETE FROM login_attempts WHERE address=?').run(address);return {allowed:true};}
+  const current=db.prepare('SELECT started,count FROM login_attempts WHERE address=?').get(address);
+  if(current&&now-current.started<600000&&current.count>=6)return {allowed:false,retryAfter:Math.max(1,Math.ceil((current.started+600000-now)/1000))};
+  const started=current&&now-current.started<600000?current.started:now;const count=current&&now-current.started<600000?current.count+1:1;
+  db.prepare('INSERT INTO login_attempts(address,started,count) VALUES(?,?,?) ON CONFLICT(address) DO UPDATE SET started=excluded.started,count=excluded.count').run(address,started,count);
+  return {allowed:true,remaining:Math.max(0,6-count)};
+ },
+ revokeSession(tokenHash,expires,now=Date.now()){
+  db.prepare('DELETE FROM revoked_sessions WHERE expires<=?').run(now);
+  if(!tokenHash||!Number.isFinite(expires)||expires<=now)return false;
+  db.prepare('INSERT INTO revoked_sessions(token_hash,expires) VALUES(?,?) ON CONFLICT(token_hash) DO UPDATE SET expires=excluded.expires').run(tokenHash,expires);return true;
+ },
+ sessionRevoked(tokenHash,now=Date.now()){
+  return !!db.prepare('SELECT 1 FROM revoked_sessions WHERE token_hash=? AND expires>?').get(tokenHash,now);
+ },
  get(id){return db.prepare('SELECT * FROM deliveries WHERE id=?').get(id);},
  history(id){return db.prepare('SELECT * FROM delivery_history WHERE id=? ORDER BY seq DESC').all(id);},
  requeue(id,newPhone,requestId,updated,acknowledged){
