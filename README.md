@@ -17,7 +17,7 @@ Backend Node 24 com SQLite e painel privado de entregas. Sem dependências npm e
 
 Abra `https://SEU-DOMINIO/admin`. A tela do **Entrega Zap** solicita a senha definida em `ADMIN_TOKEN` (gere um segredo forte exclusivo, mínimo 24 caracteres). A sessão usa cookie `HttpOnly`, `SameSite=Strict` e `Secure` em HTTPS; o painel também oferece a opção de manter o acesso por sete dias e um botão para sair. Requisições administrativas por API continuam podendo usar `Authorization: Bearer ADMIN_TOKEN`.
 
-O relatório exibe nome, telefone, e-mail, ferramenta, status, horário, tentativas e código da falha. Tem busca, filtros de status/período, páginas de 50 registros e atualização a cada 30 segundos. “Precisam de atenção” reúne falhas/resultados incertos ainda não resolvidos. Marcar como resolvido registra atendimento manual e **não muda o status de entrega nem reenvia mensagem**.
+O relatório exibe nome, telefone, e-mail, ferramenta, status, horário, tentativas e código da falha. Tem busca, filtros de status/período, páginas de 50 registros e atualização a cada 30 segundos. “Precisam de atenção” reúne falhas/resultados incertos ainda não resolvidos. Marcar como resolvido registra atendimento manual e **não muda o status de entrega nem reenvia mensagem**. Tentativas de login e sessões revogadas são persistidas no SQLite, portanto o bloqueio e o logout continuam válidos após reinícios.
 
 ### Produtos
 
@@ -47,7 +47,7 @@ Cada compra salva uma cópia da mensagem montada no momento do recebimento. Alte
 4. Gere `WIAPY_SECRET`, `ADMIN_TOKEN` e `META_VERIFY_TOKEN` diferentes com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 5. Preencha `META_TOKEN` com o token autorizado ao número/conta e `META_APP_SECRET` com o segredo do **aplicativo atual**. Confira acesso e validade do token na Meta.
 6. Os IDs e nomes de modelo estão preenchidos em `.env.example`. Confirme que correspondem à conta real e aos modelos aprovados em `pt_BR`.
-7. Gere o domínio público. `/health` deve responder `ok:true` e `mode:paused`. `/admin` deve pedir senha.
+7. Gere o domínio público. `/health` deve responder apenas `ok:true`; o modo operacional não é exposto publicamente. `/admin` deve pedir senha.
 8. Cadastre o callback Meta `https://SEU-DOMINIO/webhooks/meta` e o valor de `META_VERIFY_TOKEN` no campo de verificação. Ele é um segredo próprio, diferente do token de acesso Meta. Assine o campo `messages` e confirme que o app está inscrito na WABA. Sem essa inscrição, os status não chegam.
 9. Faça os testes controlados descritos abaixo antes de configurar vendas reais.
 
