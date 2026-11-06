@@ -39,6 +39,12 @@ test('normalizador só aceita contrato conhecido e não aprova status pendente',
  assert.equal(normalizeWebhookPayload(payload('pedido-2',CARNE,'waiting')).paid,false);assert.equal(normalizeWebhookPayload({sale:{id:'desconhecido'}}),null);
 });
 
+test('normaliza o formato SellFlux usado por gateways compatíveis',()=>{
+ const event=normalizeWebhookPayload({name:'Cliente Wiven',email:'cliente@example.com',phone:'(79) 99999-0000',transaction_id:123456,offer_id:'oferta-1',product_id:'produto-1',status:'compra-realizada',itens:[{id:'item-1'}]});
+ assert.equal(event.format,'sellflux_v1');assert.equal(event.paymentId,'123456');assert.equal(event.paid,true);assert.deepEqual(event.productIds,['produto-1','oferta-1','item-1']);assert.equal(event.customer.phone,'(79) 99999-0000');
+ assert.equal(normalizeWebhookPayload({name:'Cliente',phone:'5579999990000',transaction_id:'pendente-1',product_id:'produto-1',status:'aguardando-pagamento'}).paid,false);
+});
+
 test('HTTP: cria integrações, protege tokens e separa pedidos iguais por origem',async t=>{
  const dir=mkdtempSync(join(tmpdir(),'integration-http-')),secret='w'.repeat(32),admin='a'.repeat(32);
  const child=spawn(process.execPath,['src/server.js'],{cwd:new URL('../',import.meta.url),env:{...process.env,PORT:'0',WIAPY_SECRET:secret,ADMIN_TOKEN:admin,DB_PATH:join(dir,'db.sqlite'),DELIVERY_ENABLED:'false',DRY_RUN:'false',WHATSAPP_PROVIDER:'evolution',EVOLUTION_URL:'https://example.com',EVOLUTION_INSTANCE:'test',EVOLUTION_API_KEY:'fake-key',PRODUCTS_ACCESS_TOKEN:'fake-access'}});
@@ -52,6 +58,7 @@ test('HTTP: cria integrações, protege tokens e separa pedidos iguais por orige
  assert.equal((await send(generated.integration.webhookUrl,payload('mesmo-id','produto-gerado'),'errado')).status,401);
  assert.equal((await send(generated.integration.webhookUrl,payload('mesmo-id','produto-gerado'),generated.token,'x-webhook-token')).status,200);
  assert.equal((await send(gateway.integration.webhookUrl,payload('mesmo-id','produto-gateway'),'Bearer '+gatewayToken)).status,200);
+ assert.equal((await send(gateway.integration.webhookUrl,payload('mesmo-id','produto-gateway'),gatewayToken,'token')).status,200);
  const report=await (await fetch(base+'/admin/deliveries?source=sales',{headers:{authorization:'Bearer '+admin}})).json();assert.equal(report.total,2);assert.equal(new Set(report.rows.map(row=>row.integration_name)).size,2);
  const beforeRotate=await (await fetch(base+'/admin/integrations',{headers:{authorization:'Bearer '+admin}})).json();const current=beforeRotate.rows.find(item=>item.key===generated.integration.key);const rotatedResponse=await fetch(base+'/admin/integrations',{method:'POST',headers:adminHeaders,body:JSON.stringify({key:current.key,name:current.name,tokenOrigin:'entrega_zap',rotateToken:true,active:true,expectedUpdated:current.updated,mappings:[{productKey:'carne',externalIds:['produto-gerado']}]})});assert.equal(rotatedResponse.status,200);const rotated=await rotatedResponse.json();assert.notEqual(rotated.token,generated.token);assert.equal((await send(generated.integration.webhookUrl,payload('token-antigo','produto-gerado'),generated.token)).status,401);assert.equal((await send(generated.integration.webhookUrl,payload('token-novo','produto-gerado'),rotated.token)).status,200);
  assert.equal((await (await send(gateway.integration.webhookUrl,{formato:'desconhecido'},'Bearer '+gatewayToken)).json()).reason,'unsupported_payload');
