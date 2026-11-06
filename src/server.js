@@ -42,13 +42,15 @@ const loginLimit=(req,success=false)=>st.loginAttempt(loginAddress(req),success)
 const publicOrigin=req=>{if(env.PUBLIC_URL&&/^https:\/\/[A-Za-z0-9.-]+(?::\d+)?$/.test(env.PUBLIC_URL.replace(/\/$/,'')))return env.PUBLIC_URL.replace(/\/$/,'');const host=String(req.headers['x-forwarded-host']||req.headers.host||'').split(',')[0].trim();const proto=String(req.headers['x-forwarded-proto']||'https').split(',')[0].trim();if(!/^[A-Za-z0-9.-]+(?::\d+)?$/.test(host)||!['http','https'].includes(proto))throw Error('invalid_origin');return `${proto}://${host}`;};
 const connectionKey=name=>{const base=String(name||'whatsapp').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,32)||'whatsapp';return `${base}_${randomBytes(3).toString('hex')}`;};
 const integrationKey=name=>{const base=String(name||'integracao').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,38)||'integracao';return `${base}_${randomBytes(4).toString('hex')}`;};
-const integrationToken=req=>{const authorization=String(req.headers.authorization||'').trim();if(/^Bearer\s+/i.test(authorization))return authorization.replace(/^Bearer\s+/i,'').trim();return authorization||String(req.headers['x-webhook-token']||req.headers.token||req.headers['x-token']||req.headers['webhook-token']||'').trim();};
-async function receiveIntegration(req,res,integration,providedToken,{testHeader=false}={}){
+const integrationToken=(req,payload,url)=>{const authorization=String(req.headers.authorization||'').trim();if(/^Bearer\s+/i.test(authorization))return authorization.replace(/^Bearer\s+/i,'').trim();const header=authorization||req.headers['x-webhook-token']||req.headers.token||req.headers['x-token']||req.headers['webhook-token']||req.headers['x-api-key']||req.headers['api-key']||req.headers.apikey||req.headers['x-auth-token'];const query=url?.searchParams?.get('token')||url?.searchParams?.get('secret')||url?.searchParams?.get('key');const fromBody=payload?.token||payload?.webhook_token||payload?.webhookToken||payload?.secret||payload?.api_key||payload?.apiKey;return String(header||query||fromBody||'').trim();};
+const authDiagnostic=req=>{const names=Object.keys(req.headers).filter(name=>/(auth|token|key|secret)/i.test(name)).slice(0,8);return names.length?'Headers de autenticação: '+names.join(', '):'Nenhum header de autenticação reconhecível';};
+async function receiveIntegration(req,res,integration,{testHeader=false}={}){
  if(!integration)return reply(res,404,{error:'integration_not_found'});
- if(!providedToken||!equal(hash(providedToken),st.integrationSecret(integration.key)))return reply(res,401,{error:'unauthorized'});
+ const raw=await body(req);let payload=null;try{payload=JSON.parse(raw.toString());}catch{}const requestUrl=new URL(req.url,'http://localhost');const providedToken=integrationToken(req,payload,requestUrl);
+ if(!providedToken||!equal(hash(providedToken),st.integrationSecret(integration.key))){st.observeIntegration(integration.key,'unauthorized',authDiagnostic(req));return reply(res,401,{error:'unauthorized'});}
  if(!integration.active)return reply(res,200,{ignored:true,inactive:true});
  if(testHeader&&String(req.headers['x-wiapy-test']||'').toLowerCase()==='true'){st.observeIntegration(integration.key,'test');return reply(res,200,{ignored:true,test:true});}
- const payload=JSON.parse((await body(req)).toString());const event=normalizeWebhookPayload(payload);
+ if(!payload)return reply(res,400,{error:'invalid_payload'});const event=normalizeWebhookPayload(payload);
  if(!event){st.observeIntegration(integration.key,'unsupported','unsupported_payload');return reply(res,200,{ignored:true,reason:'unsupported_payload'});}
  if(!event.paid){st.observeIntegration(integration.key,'ignored_status',event.status);return reply(res,200,{ignored:true,status:event.status});}
  const resolved=st.resolveIntegrationProducts(integration.key,event.productIds);if(!resolved.matched.length){st.observeIntegration(integration.key,'unmapped','product_not_mapped');return reply(res,200,{ignored:true,reason:'product_not_mapped'});}
@@ -138,9 +140,9 @@ const server=http.createServer(async(req,res)=>{try{
  }
  if(url.pathname==='/webhooks/meta'&&req.method==='GET'){
  if(env.META_VERIFY_TOKEN&&url.searchParams.get('hub.mode')==='subscribe'&&equal(url.searchParams.get('hub.verify_token'),env.META_VERIFY_TOKEN)){res.writeHead(200,{'content-type':'text/plain'});return res.end(url.searchParams.get('hub.challenge')||'');}return reply(res,403,{error:'verification_failed'});}
- if(url.pathname==='/webhooks/wiapy'&&req.method==='POST')return receiveIntegration(req,res,st.integration('checkout_principal'),String(req.headers.authorization||''),{testHeader:true});
+ if(url.pathname==='/webhooks/wiapy'&&req.method==='POST')return receiveIntegration(req,res,st.integration('checkout_principal'),{testHeader:true});
  const integrationMatch=url.pathname.match(/^\/webhooks\/integrations\/([a-z0-9][a-z0-9_-]{5,63})$/);
- if(integrationMatch&&req.method==='POST')return receiveIntegration(req,res,st.integration(integrationMatch[1]),integrationToken(req));
+ if(integrationMatch&&req.method==='POST')return receiveIntegration(req,res,st.integration(integrationMatch[1]));
  if(url.pathname==='/webhooks/evolution'&&req.method==='POST'){
  const p=JSON.parse((await body(req)).toString());
  const connection=st.connections(true).find(item=>item.instanceName===p.instance);if(!connection||!p.apikey||!equal(hash(p.apikey),connection.webhookKeyHash))return reply(res,401,{error:'unauthorized'});
