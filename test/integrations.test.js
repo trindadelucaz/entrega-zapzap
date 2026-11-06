@@ -47,7 +47,7 @@ test('HTTP: cria integrações, protege tokens e separa pedidos iguais por orige
  const adminHeaders={authorization:'Bearer '+admin,'content-type':'application/json','x-admin-action':'save-integration','x-forwarded-proto':'http'};
  const create=async body=>{const response=await fetch(base+'/admin/integrations',{method:'POST',headers:adminHeaders,body:JSON.stringify(body)});assert.equal(response.status,201);return response.json();};
  const generated=await create({name:'Checkout gerado',tokenOrigin:'entrega_zap',mappings:[{productKey:'carne',externalIds:['produto-gerado']}]});assert.ok(generated.token.length>=32);assert.doesNotMatch(JSON.stringify(generated.integration),new RegExp(generated.token));
- const gatewayToken='g'.repeat(32),gateway=await create({name:'Checkout gateway',tokenOrigin:'gateway',token:gatewayToken,mappings:[{productKey:'carne',externalIds:['produto-gateway']}]});assert.equal(gateway.token,undefined);
+ const gatewayToken='12345678',gateway=await create({name:'Checkout gateway',tokenOrigin:'gateway',token:gatewayToken,mappings:[{productKey:'carne',externalIds:['produto-gateway']}]});assert.equal(gateway.token,undefined);
  const send=async(url,body,token,header='authorization')=>fetch(url,{method:'POST',headers:{'content-type':'application/json',[header]:token},body:JSON.stringify(body)});
  assert.equal((await send(generated.integration.webhookUrl,payload('mesmo-id','produto-gerado'),'errado')).status,401);
  assert.equal((await send(generated.integration.webhookUrl,payload('mesmo-id','produto-gerado'),generated.token,'x-webhook-token')).status,200);
