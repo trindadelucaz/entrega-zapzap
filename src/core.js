@@ -31,7 +31,7 @@ export function sale(body,matchedProducts,ruleError=null,options={}){
  let normalized='',error=null;try{normalized=phone(raw_phone);}catch{error='invalid_phone';}
  const customer={name:String(body.customer?.name||'').slice(0,200),email:String(body.customer?.email||'').slice(0,254)};
  const keys=products.map(p=>p.key);const legacy=keys.length===1&&keys[0]==='carne'?'carne':keys.includes('carne')&&keys.includes('proprios')&&keys.length===2?'combo':'catalog';
- return {id:options.id||body.payment.id,payment_id:body.payment.id,connection_key:options.connectionKey||'',phone:normalized,raw_phone,name:customer.name,email:customer.email,error:ruleError||error,kind:legacy,product_keys:JSON.stringify(keys),access_label:products.map(p=>p.name).join(' + '),message_text:renderDeliveryMessage(products,customer)};
+ return {id:options.id||body.payment.id,payment_id:body.payment.id,connection_key:options.connectionKey||'',integration_key:options.integrationKey||'',phone:normalized,raw_phone,name:customer.name,email:customer.email,error:ruleError||error,kind:legacy,product_keys:JSON.stringify(keys),access_label:products.map(p=>p.name).join(' + '),message_text:renderDeliveryMessage(products,customer)};
 }
 export function message(row,cfg){return {messaging_product:'whatsapp',to:row.phone,type:'template',biz_opaque_callback_data:row.id,template:{name:row.kind==='combo'?cfg.combo:cfg.carne,language:{code:'pt_BR'}}};}
 export async function send(row,cfg,fetcher=fetch){
