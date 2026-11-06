@@ -1,12 +1,12 @@
-# Entrega Wiapy → WhatsApp
+# Entrega Zap
 
 Backend Node 24 com SQLite e painel privado de entregas. Sem dependências npm externas. Os envios começam **pausados** (`DELIVERY_ENABLED=false`).
 
 ## O que faz
 
-- Recebe compras pagas da Wiapy e grava antes de responder, sem aguardar o envio da Meta.
-- Usa o ID do pagamento para evitar duplicação do mesmo pedido.
-- Mantém um catálogo configurável de produtos, IDs Wiapy, links, tokens e blocos de mensagem.
+- Recebe compras pagas por integrações de webhook e grava antes de responder, sem aguardar o envio do WhatsApp.
+- Usa integração + ID do pagamento para evitar duplicação sem confundir pedidos de checkouts diferentes.
+- Mantém um catálogo configurável de produtos, links, tokens e blocos de mensagem.
 - Combina automaticamente os produtos reconhecidos na mesma compra por WhatsApp de entrega. Se uma compra tiver produtos atribuídos a números diferentes, cria uma entrega para cada número.
 - Os produtos atuais de Carnes e Produtos Próprios são criados automaticamente na primeira inicialização, preservando o comportamento anterior.
 - Telefone inválido vira falha no relatório, com nome, e-mail e telefone original para atendimento manual.
@@ -24,16 +24,28 @@ O relatório exibe nome, telefone, e-mail, ferramenta, status, horário, tentati
 A aba **Produtos** permite cadastrar e editar uma entrega sem alterar o backend:
 
 - nome e código interno;
-- um ou mais IDs recebidos em `products` ou `checkout.orderbump` da Wiapy;
 - link de acesso, tutoriais e token compartilhado do produto;
 - bloco da mensagem com prévia;
 - tipo principal ou complemento e, para complementos, o produto principal obrigatório;
 - ordem e situação ativa/inativa. A situação também pode ser alterada diretamente pela chavinha no card.
 - WhatsApp responsável pela entrega; complementos podem herdar o número do produto principal.
 
-Variáveis aceitas: `{{nome_cliente}}`, `{{email_cliente}}`, `{{nome_produto}}`, `{{link_acesso}}`, `{{link_tutoriais}}` e `{{token_acesso}}`. IDs não podem pertencer a mais de um produto. Produto pausado deixa de ser reconhecido em novas compras, mas o histórico e as mensagens já gravadas permanecem intactos.
+Variáveis aceitas: `{{nome_cliente}}`, `{{email_cliente}}`, `{{nome_produto}}`, `{{link_acesso}}`, `{{link_tutoriais}}` e `{{token_acesso}}`. Produto pausado deixa de ser reconhecido em novas compras, mas o histórico e as mensagens já gravadas permanecem intactos.
 
-Um complemento ativo exige que o produto principal também esteja ativo. O painel impede desligar o principal antes dos complementos. Se a Wiapy enviar um complemento sem o principal obrigatório, a compra é registrada como falha para análise e nenhuma mensagem é enviada. **Calculadora de Produtos Próprios** é migrada automaticamente como complemento de **Calculadora de Precificação de Carnes**.
+Um complemento ativo exige que o produto principal também esteja ativo. O painel impede desligar o principal antes dos complementos. Se um checkout enviar um complemento sem o principal obrigatório, a compra é registrada como falha para análise e nenhuma mensagem é enviada. **Calculadora de Produtos Próprios** é migrada automaticamente como complemento de **Calculadora de Precificação de Carnes**.
+
+### Integrações
+
+A aba **Integrações** separa a origem da venda do conteúdo entregue. Uma integração representa uma conta/checkout e pode vincular vários produtos. O mesmo produto também pode existir em mais de uma integração, com IDs externos diferentes.
+
+Há duas formas de autenticação:
+
+- **Token gerado pelo Entrega Zap:** o valor é exibido uma única vez para ser copiado ao checkout.
+- **Token gerado pelo gateway:** o valor fornecido pelo checkout é colado no Entrega Zap.
+
+Novas integrações recebem uma URL exclusiva em `/webhooks/integrations/CHAVE`. O token pode chegar diretamente no header `Authorization`, como `Bearer TOKEN`, ou em `X-Webhook-Token`. Somente o hash e os quatro últimos caracteres ficam armazenados. Tokens gerados pelo Entrega Zap podem ser substituídos no painel; a integração legada continua seguindo `WIAPY_SECRET` no Railway.
+
+Os IDs externos são vinculados por integração, portanto dois checkouts podem usar o mesmo ID sem conflito. A tela mostra eventos recebidos, último diagnóstico e quantidade de produtos vinculados. Um formato ainda não reconhecido responde `200` sem criar entrega e aparece como diagnóstico para adaptação segura; payloads completos e dados desnecessários não são armazenados.
 
 Cada compra salva uma cópia da mensagem montada no momento do recebimento. Alterar um produto posteriormente não muda reenvios ou registros antigos. Antes de ativar uma nova integração, selecione o produto em **Testar uma entrega** e envie para um telefone controlado.
 
@@ -69,7 +81,7 @@ Adicione **uma nova integração**, preservando a integração Lovable de criaç
 - Header `authorization`: valor exato de `WIAPY_SECRET`, sem `Bearer`.
 - Corpo: objeto de venda (conteúdo de `data` nos logs), não o envelope do log.
 
-Eventos enviados pelo botão de teste da Wiapy com `x-wiapy-test: true` são ignorados de propósito. Para uma nova oferta, copie do payload real o ID presente em `products[].id` ou `checkout.orderbump[].id`, cadastre-o na aba **Produtos**, teste a mensagem e somente depois ative a integração.
+Eventos enviados pelo botão de teste da Wiapy com `x-wiapy-test: true` são ignorados de propósito. Na primeira inicialização, os IDs existentes são migrados automaticamente para **Checkout principal**, sem trocar a URL atual. Para uma nova oferta, crie o produto na aba **Produtos** e vincule o ID recebido em `products[].id` ou `checkout.orderbump[].id` dentro da aba **Integrações**.
 
 Use segredo novo, diferente do Lovable. Não reutilize credenciais compartilhadas em conversa. Não grave CPF, tracking ou payload completo: o banco armazena apenas os campos necessários ao envio e atendimento.
 
